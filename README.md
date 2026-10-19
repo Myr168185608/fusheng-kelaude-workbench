@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/assets/banner.webp" alt="云端运维工作台 · Cloud Ops Workbench" width="100%">
+<img src="docs/assets/banner.webp" alt="浮生氪劳德工作台" width="100%">
 
-<h1>云端运维工作台</h1>
+<h1>浮生氪劳德工作台</h1>
 
 <p><b>在浏览器里，用 Claude Code 运维你的云服务器。</b></p>
 
@@ -41,7 +41,7 @@
 
 ## 这是什么
 
-**云端运维工作台**是一个部署在你自己服务器上的网页应用。它在服务器上运行官方的 [Claude Code](https://code.claude.com/docs/en/overview) CLI，把对话、工具审批、终端、工作区文件与运行监控整合进一个页面。
+**浮生氪劳德工作台**是一个部署在你自己服务器上的网页应用。它在服务器上运行官方的 [Claude Code](https://code.claude.com/docs/en/overview) CLI，把对话、工具审批、终端、工作区文件与运行监控整合进一个页面。
 
 打开浏览器（电脑或手机都行），用自然语言告诉 Claude 你想做什么：检查服务器、写配置、看日志、排查故障。它会在服务器上一步步执行，每一条命令、每一处文件改动都实时呈现在你眼前。重要的操作，**在你点下「允许」之前不会执行**。
 

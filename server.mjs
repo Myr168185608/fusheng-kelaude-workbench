@@ -137,6 +137,6 @@ export async function createWorkbench(options={}){
  return {app,store,auth,runs,terminals,usage,monitor,close};
 }
 if(process.argv[1]&&await fs.realpath(process.argv[1]).catch(()=>null)===fileURLToPath(import.meta.url)){
- process.umask(0o077);const wb=await createWorkbench().catch(error=>{console.error(error.message);process.exit(1);});const server=wb.app.listen(Number(process.env.PORT||17880),process.env.WORKBENCH_HOST||'127.0.0.1',()=>console.log('Cloud ops workbench listening on loopback'));
+ process.umask(0o077);const wb=await createWorkbench().catch(error=>{console.error(error.message);process.exit(1);});const server=wb.app.listen(Number(process.env.PORT||17880),process.env.WORKBENCH_HOST||'127.0.0.1',()=>console.log('浮生氪劳德工作台已启动，监听本机回环地址'));
  let closing=false;for(const signal of ['SIGTERM','SIGINT'])process.on(signal,async()=>{if(closing)return;closing=true;server.close();await wb.close();process.exit(0);});
 }
