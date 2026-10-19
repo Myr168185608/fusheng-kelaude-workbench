@@ -1,4 +1,4 @@
-# 云端运维工作台 · systemd 服务单元
+# 浮生氪劳德工作台 · systemd 服务单元
 #
 # 安装（详见 docs/DEPLOYMENT.md）：
 #   sudo cp deploy/systemd/cloud-ops-workbench.service /etc/systemd/system/
@@ -9,7 +9,7 @@
 # 需要 Root 运维时，请改用 root-operations.conf 覆盖（先阅读 SECURITY.md）。
 
 [Unit]
-Description=Cloud Ops Workbench
+Description=浮生氪劳德工作台
 Documentation=https://github.com/qiuxinyuan321/cloud-ops-workbench
 After=network-online.target
 Wants=network-online.target
