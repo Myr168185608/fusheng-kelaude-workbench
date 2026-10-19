@@ -1,0 +1,52 @@
+{
+  "name": "cloud-ops-workbench",
+  "version": "1.0.0",
+  "description": "Self-hosted, single-account web workbench for running the official Claude Code CLI on your own cloud server: chat, workspace files, terminal and live run monitoring in one page.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "qiuxinyuan321",
+  "homepage": "https://github.com/qiuxinyuan321/cloud-ops-workbench#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qiuxinyuan321/cloud-ops-workbench.git"
+  },
+  "bugs": {
+    "url": "https://github.com/qiuxinyuan321/cloud-ops-workbench/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "workbench",
+    "self-hosted",
+    "server-ops",
+    "devops",
+    "web-terminal",
+    "monaco-editor",
+    "sse"
+  ],
+  "scripts": {
+    "start": "node server.mjs",
+    "build": "node scripts/build-editor.mjs",
+    "build:editor": "node scripts/build-editor.mjs",
+    "set-password": "node scripts/set-password.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "dompurify": "^3.4.17",
+    "express": "^5.1.0",
+    "marked": "^16.4.0",
+    "monaco-editor": "0.57.0"
+  },
+  "overrides": {
+    "dompurify": "$dompurify"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

@@ -1,0 +1,43 @@
+# 云端运维工作台 · systemd 服务单元
+#
+# 安装（详见 docs/DEPLOYMENT.md）：
+#   sudo cp deploy/systemd/cloud-ops-workbench.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cloud-ops-workbench
+#
+# 默认配置不允许 sudo：Claude Code 与网页终端都只拥有服务账号自身的权限。
+# 需要 Root 运维时，请改用 root-operations.conf 覆盖（先阅读 SECURITY.md）。
+
+[Unit]
+Description=Cloud Ops Workbench
+Documentation=https://github.com/qiuxinyuan321/cloud-ops-workbench
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=workbench
+Group=workbench
+WorkingDirectory=/opt/cloud-ops-workbench
+EnvironmentFile=/etc/cloud-ops-workbench/workbench.env
+ExecStart=/usr/bin/node /opt/cloud-ops-workbench/server.mjs
+Restart=on-failure
+RestartSec=5
+
+# 停止时只给主进程发 SIGTERM：工作台会先保存会话、结束 Claude Code 与终端子进程
+KillMode=mixed
+TimeoutStopSec=30
+UMask=0077
+
+# 基础加固（不影响 Claude Code 在服务账号权限内工作）
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

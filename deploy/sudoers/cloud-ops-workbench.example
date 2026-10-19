@@ -1,0 +1,22 @@
+# /etc/sudoers.d/cloud-ops-workbench · 按需授权示例（仅在启用 Root 运维时需要）
+#
+# 原则：
+#   - 只授权你真正需要 Claude 执行的命令，并尽量写死参数；
+#   - 绝不要写 "workbench ALL=(ALL) NOPASSWD: ALL"；
+#   - 能以 root 身份写文件或启动交互程序的授权（tee、cp、编辑器、包管理器、less 等分页器），
+#     实际上等同于完整的 root 权限。
+#
+# 读日志通常不需要 sudo，把服务账号加入只读日志组即可：
+#   sudo usermod -aG adm,systemd-journal workbench
+#
+# 安装（路径以 Debian / Ubuntu 为例，请先用 command -v 确认）：
+#   sudo install -m 0440 deploy/sudoers/cloud-ops-workbench.example /etc/sudoers.d/cloud-ops-workbench
+#   sudo visudo -cf /etc/sudoers.d/cloud-ops-workbench
+
+Cmnd_Alias WB_NGINX = /usr/sbin/nginx -t, \
+                      /usr/bin/systemctl reload nginx, \
+                      /usr/bin/systemctl restart nginx
+Cmnd_Alias WB_CERTS = /usr/bin/certbot renew --dry-run, \
+                      /usr/bin/certbot renew
+
+workbench ALL=(root) NOPASSWD: WB_NGINX, WB_CERTS

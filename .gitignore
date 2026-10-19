@@ -1,0 +1,19 @@
+# Dependencies and build output (npm ci && npm run build recreate them)
+# No trailing slash: a symlinked node_modules must be ignored too.
+node_modules
+public/vendor/
+
+# Runtime data: conversations, password hash, browser sessions, workspaces
+data/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Logs and editor/OS clutter
+*.log
+npm-debug.log*
+.DS_Store
+.idea/
+.vscode/
