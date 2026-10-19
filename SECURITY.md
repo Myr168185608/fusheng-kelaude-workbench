@@ -121,9 +121,11 @@ sudo systemctl daemon-reload && sudo systemctl restart cloud-ops-workbench
 
 ## 报告安全问题
 
-如果你发现了工作台本身的安全问题，请**不要**公开提交 Issue，而是通过仓库的 **Security → Report a vulnerability** 私下报告：
+如果你发现了工作台本身的安全问题，请**不要**在公开的 Issue 里披露细节，而是通过仓库的 **Security → Report a vulnerability** 私下报告：
 
 **<https://github.com/qiuxinyuan321/cloud-ops-workbench/security/advisories/new>**
+
+如果这个入口暂时不可用，请先提交一个**不含任何漏洞细节**的 Issue，说明你想私下报告一个安全问题，维护者会与你约定私下沟通的方式。
 
 报告时请尽量提供：受影响的版本或提交、复现步骤、影响范围。这是一个业余维护的个人项目，没有响应时限上的承诺，但每一份报告都会认真对待。只有 `main` 分支的最新版本会得到修复。
 
