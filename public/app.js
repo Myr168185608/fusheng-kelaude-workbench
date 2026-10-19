@@ -92,7 +92,7 @@ function showLogin(error = '') {
   $('#message-input').value = ''; $('#session-search').value = ''; $('#messages').replaceChildren(); $('#session-list').replaceChildren();
   state.authenticated = false; state.source?.close(); state.source = null; state.connected = false;
   ide.terminalSource?.close(); ide.terminalSource = null; ide.xterm?.dispose(); ide.xterm = null; ide.fit = null; ide.terminal = null;
-  clearTimeout(state.refreshTimer); state.refreshTimer = null; ui.attention = null; document.title = '云端运维工作台'; setFavicon(null);
+  clearTimeout(state.refreshTimer); state.refreshTimer = null; ui.attention = null; document.title = '浮生氪劳德工作台'; setFavicon(null);
   $('#boot').hidden = true; $('#app').hidden = true; $('#login-view').hidden = false;
   $('#login-error').textContent = error; $('#login-error').hidden = !error;
   $('#login-password').value = ''; $('#login-totp').value = '';
@@ -958,7 +958,7 @@ function renderNotices() {
   if (html === ui.noticesHTML) return; ui.noticesHTML = html;
   $('#composer-notices').innerHTML = html; $('#composer-notices').hidden = !html;
 }
-const faviconBase = '<rect width="64" height="64" rx="18" fill="#182d2c"/><path d="M17 40 32 14l15 26H17Zm8-7h14l-7-12-7 12Z" fill="#bde5cc"/><path d="M19 48h26" stroke="#bde5cc" stroke-width="4" stroke-linecap="round"/>';
+const faviconBase = '<rect width="64" height="64" rx="18" fill="#182d2c"/><text x="32" y="44" text-anchor="middle" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="40" fill="#bde5cc">氪</text>';
 function setFavicon(color) {
   if ((color || '') === ui.favicon) return; ui.favicon = color || '';
   const dot = color ? `<circle cx="51" cy="13" r="12" fill="${color}" stroke="#f6f5f0" stroke-width="4"/>` : '';
@@ -967,7 +967,7 @@ function setFavicon(color) {
 function updateDocumentTitle() {
   const waiting = state.sessions.some(s => s.status === 'awaiting_approval'), busy = state.sessions.some(running), attention = ui.attention;
   const prefix = waiting ? '【待确认】' : attention?.kind === 'error' ? '【出错】' : attention?.kind === 'done' ? '✓ ' : busy ? '● ' : '';
-  document.title = `${prefix}${state.session?.title || (state.activeId ? '会话' : '新会话')} · 云端运维工作台`;
+  document.title = `${prefix}${state.session?.title || (state.activeId ? '会话' : '新会话')} · 浮生氪劳德工作台`;
   setFavicon(waiting ? '#d6a039' : attention?.kind === 'error' ? '#c4573f' : attention?.kind === 'done' ? '#4fae7c' : busy ? '#7fbf95' : null);
 }
 function noteTransition(id, before, after, title) {

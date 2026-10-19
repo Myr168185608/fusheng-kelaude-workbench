@@ -1,4 +1,4 @@
-/* 云端运维工作台 — visual system.
+/* 浮生氪劳德工作台 — visual system.
    One rule per line, grouped by surface. Tokens first; components only use tokens or local tints. */
 @font-face{font-family:Workbench;src:local("Inter"),local("SF Pro Text");font-display:swap}
 :root{--bg:#f6f5f0;--bg-2:#efeee7;--surface:#fffefb;--surface-2:#fafaf6;--sunken:#f1f2ec;--line:#e4e5dd;--line-2:#d7dad0;--ink:#1c2a26;--ink-2:#3b4943;--ink-3:#5b6861;--ink-4:#858f88;--ink-5:#aab1ab;--brand:#2f6a52;--brand-2:#255845;--brand-3:#1b4234;--brand-soft:#e3eee6;--brand-tint:#f0f6f1;--brand-line:#c6dbcd;--amber:#9a6214;--amber-2:#c98a2e;--amber-soft:#fbf2df;--amber-line:#ebd4a4;--red:#ad4537;--red-soft:#fbebe7;--red-line:#efcbc2;--blue:#2e6482;--blue-soft:#e8f1f6;--side:#14282a;--side-2:#1a3234;--side-3:#23403f;--side-ink:#dde8e1;--side-ink-2:#a3b8ad;--side-ink-3:#71897d;--r-sm:6px;--r:10px;--r-lg:14px;--r-xl:20px;--sh-1:0 1px 2px #1a2b2412,0 0 0 1px #1a2b2409;--sh-2:0 8px 24px -10px #1a2b242e,0 2px 6px -2px #1a2b2414;--sh-3:0 28px 70px -22px #11211b55,0 10px 24px -12px #11211b2e;--font:Workbench,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;--serif:"Songti SC","STSong","Noto Serif CJK SC","Source Han Serif SC",Georgia,serif;--mono:"SFMono-Regular","JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;--ease:cubic-bezier(.2,.8,.2,1);font-family:var(--font);color:var(--ink);background:var(--bg);font-synthesis:none;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-size:13px;line-height:1.6;text-rendering:optimizeLegibility}
@@ -91,7 +91,7 @@ kbd{font-family:var(--font)}
 .app{height:100dvh;display:flex;overflow:hidden}
 .sidebar{width:264px;flex-shrink:0;background:linear-gradient(180deg,var(--side-2) 0,var(--side) 38%);color:var(--side-ink-2);padding:24px 14px 0;display:flex;flex-direction:column;z-index:20;border-right:1px solid #0b1a1b}
 .sidebar-brand{display:flex;align-items:center;gap:12px;color:var(--side-ink);text-decoration:none;padding:0 8px;margin-bottom:24px;position:relative}
-.sidebar-brand strong{display:block;font-weight:600;font-size:18px;line-height:1.4;letter-spacing:1px;white-space:nowrap}
+.sidebar-brand strong{display:block;font-weight:600;font-size:16px;line-height:1.4;letter-spacing:1px;white-space:nowrap}
 .sidebar-brand small{display:block;font-size:11.5px;color:var(--side-ink-3);letter-spacing:1px}
 .brand-caption{margin-left:auto;border:1px solid #85a38b33;border-radius:5px;font-size:9.5px;padding:2px 5px;color:#8aa694;letter-spacing:1px;align-self:flex-start;margin-top:5px;font-weight:600}
 .new-session{display:flex;align-items:center;gap:10px;border:1px solid #a8c9b13d;background:linear-gradient(180deg,#a8c6a91f,#a8c6a90d);color:#e3eedf;border-radius:11px;height:44px;padding:0 12px;font-size:13.5px;font-weight:550;transition:background .2s,border-color .2s;box-shadow:0 1px 0 #ffffff0d inset}

@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#15292a">
-  <meta name="description" content="云端运维工作台 · 在浏览器里用 Claude Code 运维你的服务器">
-  <title>云端运维工作台</title>
-  <link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23182d2c'/%3E%3Cpath d='M17 40 32 14l15 26H17Zm8-7h14l-7-12-7 12Z' fill='%23bde5cc'/%3E%3Cpath d='M19 48h26' stroke='%23bde5cc' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <meta name="description" content="浮生氪劳德工作台 · 在浏览器里用 Claude Code 运维你的服务器">
+  <title>浮生氪劳德工作台</title>
+  <link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2218%22%20fill%3D%22%23182d2c%22%2F%3E%3Ctext%20x%3D%2232%22%20y%3D%2244%22%20text-anchor%3D%22middle%22%20font-family%3D%22PingFang%20SC%2CMicrosoft%20YaHei%2Csans-serif%22%20font-size%3D%2240%22%20fill%3D%22%23bde5cc%22%3E%E6%B0%AA%3C%2Ftext%3E%3C%2Fsvg%3E">
   <link rel="stylesheet" href="/vendor/xterm.css">
   <link rel="stylesheet" href="/styles.css">
   <script defer src="/vendor/marked.js"></script>
@@ -17,25 +17,25 @@
   <script type="module" src="/app.js"></script>
 </head>
 <body>
-  <div id="boot" class="boot" role="status"><span class="brand-glyph">云</span><p>正在连接你的云端工作台<span class="loading-dots"></span></p></div>
+  <div id="boot" class="boot" role="status"><span class="brand-glyph">氪</span><p>正在连接浮生氪劳德工作台<span class="loading-dots"></span></p></div>
 
   <main id="login-view" class="login-view" hidden>
     <div class="login-decoration" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit orbit-three"></div><div class="login-grid"></div></div>
-    <div class="login-story"><div class="wordmark"><span class="brand-glyph">云</span><span>Cloud Ops<span class="wordmark-divider">/</span>云端运维工作台</span></div><div class="login-story-copy"><span class="eyebrow">YOUR QUIET CORNER IN THE CLOUD</span><h1>思考有回声，<br>工作有着落。</h1><p>一个专注的空间，连接你的 Claude、<br>服务器和正在发生的工作。</p><div class="login-dots"><span></span><span></span><span></span><small>专属空间 · 持续在线</small></div></div><span class="login-footnote">SELF-HOSTED · SINGLE ACCOUNT · RUNS CLAUDE CODE</span></div>
-    <section class="login-panel" aria-labelledby="login-title"><div class="login-card"><div class="login-mark" data-icon="lock"></div><span class="eyebrow">WELCOME BACK</span><h2 id="login-title">回到你的工作台</h2><p class="muted">输入访问口令，继续未完成的好想法。</p><form id="login-form"><label for="login-password">工作台口令</label><div class="password-field"><input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="输入你的访问口令" required><button type="button" id="toggle-password" class="icon-button" aria-label="显示口令" data-icon="eye"></button></div><div id="totp-field" hidden><label for="login-totp">动态验证码</label><input id="login-totp" name="totp" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="输入六位动态验证码"></div><p id="login-error" class="form-error" role="alert" hidden></p><button id="login-submit" class="button button-primary login-submit" type="submit"><span>进入工作台</span><span data-icon="arrow-right"></span></button></form><div class="login-privacy"><span data-icon="shield"></span><span>仅供本人使用 · 登录凭据保留在云端</span></div></div><div class="login-mobile-brand">云端运维工作台</div></section>
+    <div class="login-story"><div class="wordmark"><span class="brand-glyph">氪</span><span>浮生氪劳德工作台</span></div><div class="login-story-copy"><span class="eyebrow">YOUR QUIET CORNER IN THE CLOUD</span><h1>思考有回声，<br>工作有着落。</h1><p>一个专注的空间，连接你的 Claude、<br>服务器和正在发生的工作。</p><div class="login-dots"><span></span><span></span><span></span><small>专属空间 · 持续在线</small></div></div><span class="login-footnote">SELF-HOSTED · SINGLE ACCOUNT · RUNS CLAUDE CODE</span></div>
+    <section class="login-panel" aria-labelledby="login-title"><div class="login-card"><div class="login-mark" data-icon="lock"></div><span class="eyebrow">WELCOME BACK</span><h2 id="login-title">回到你的工作台</h2><p class="muted">输入访问口令，继续未完成的好想法。</p><form id="login-form"><label for="login-password">工作台口令</label><div class="password-field"><input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="输入你的访问口令" required><button type="button" id="toggle-password" class="icon-button" aria-label="显示口令" data-icon="eye"></button></div><div id="totp-field" hidden><label for="login-totp">动态验证码</label><input id="login-totp" name="totp" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="输入六位动态验证码"></div><p id="login-error" class="form-error" role="alert" hidden></p><button id="login-submit" class="button button-primary login-submit" type="submit"><span>进入工作台</span><span data-icon="arrow-right"></span></button></form><div class="login-privacy"><span data-icon="shield"></span><span>仅供本人使用 · 登录凭据保留在云端</span></div></div><div class="login-mobile-brand">浮生氪劳德工作台</div></section>
   </main>
 
   <div id="app" class="app" hidden>
     <button id="sidebar-scrim" class="sidebar-scrim" aria-label="关闭侧栏" hidden></button>
     <aside id="sidebar" class="sidebar" aria-label="工作台导航">
-      <a class="sidebar-brand" href="/" aria-label="云端运维工作台首页"><span class="brand-glyph">云</span><span><strong>Cloud Ops</strong><small>云端运维工作台</small></span><span class="brand-caption">PRIVATE</span></a>
+      <a class="sidebar-brand" href="/" aria-label="浮生氪劳德工作台首页"><span class="brand-glyph">氪</span><span><strong>浮生氪劳德工作台</strong><small>私人云端空间</small></span></a>
       <button id="new-session" class="new-session"><span data-icon="plus"></span>开启新会话<span class="shortcut">N</span></button>
       <label class="session-search"><span data-icon="search"></span><input id="session-search" type="search" placeholder="搜索会话" autocomplete="off"></label>
       <div class="sidebar-section-label"><span id="session-list-label">最近会话</span><button id="toggle-archived" class="subtle-button" title="查看归档" aria-label="查看归档" data-icon="archive"></button></div>
       <nav id="session-list" class="session-list" aria-label="会话列表"></nav>
       <div class="sidebar-bottom">
         <div class="host-status"><span class="status-dot" id="host-dot"></span><span><strong>云端服务器</strong><small id="sidebar-host-status">正在连接</small></span><span data-icon="server"></span></div>
-        <div class="profile-row"><div class="avatar">C</div><span><strong>私人工作台</strong><small>CLOUD OPS<span id="app-version"></span></small></span><button id="logout" class="icon-button" data-icon="logout" aria-label="退出工作台" title="退出登录"></button></div>
+        <div class="profile-row"><div class="avatar">氪</div><span><strong>浮生氪劳德工作台</strong><small>私人工作台<span id="app-version"></span></small></span><button id="logout" class="icon-button" data-icon="logout" aria-label="退出工作台" title="退出登录"></button></div>
       </div>
     </aside>
 
@@ -56,7 +56,7 @@
       <div class="ide-body"><div class="conversation-pane">
       <section id="chat-view" class="chat-view" aria-label="Claude 对话">
         <div id="usage-strip" class="usage-strip" aria-label="订阅额度"><div id="quota-five" class="quota-item"></div><div id="quota-week" class="quota-item"></div><div id="quota-reset" class="quota-reset" hidden></div><div class="usage-actions"><button id="refresh-usage" class="icon-button" data-icon="refresh" aria-label="刷新官方额度" title="刷新官方额度"></button><button id="usage-collapse" class="icon-button" data-icon="chevron-down" aria-label="收起额度详情" title="收起 / 展开额度详情"></button></div></div>
-        <div id="messages" class="messages" aria-live="polite" aria-relevant="additions"><div id="welcome" class="welcome"><div class="welcome-symbol" aria-hidden="true"><span class="brand-glyph">云</span></div><span class="eyebrow">A LITTLE CLARITY, A LOT OF POSSIBILITY</span><h2>今天想做些什么？</h2><p>把想法交给 Claude。一起看清问题，推进工作。</p><div class="welcome-suggestions"><button data-suggestion="请只读检查服务器当前运行状态，汇总 CPU、内存、磁盘和服务健康情况。不要修改配置或重启服务。"><span data-icon="server"></span><strong>看看服务器</strong><small>了解当前运行状态</small><span data-icon="arrow-up-right"></span></button><button data-suggestion="帮我分析当前工作目录和项目结构，说明关键文件、启动方式和需要关注的问题，先不要修改文件。"><span data-icon="folder"></span><strong>梳理一个项目</strong><small>从结构与关键问题入手</small><span data-icon="arrow-up-right"></span></button><button data-suggestion="我想制定一份运维任务计划。请先了解我的目标和约束，再整理可执行的步骤。"><span data-icon="sparkles"></span><strong>一起理清思路</strong><small>让下一步更清晰</small><span data-icon="arrow-up-right"></span></button></div><div class="welcome-location"><span class="status-dot"></span>你的工作在云端服务器上运行</div></div></div>
+        <div id="messages" class="messages" aria-live="polite" aria-relevant="additions"><div id="welcome" class="welcome"><div class="welcome-symbol" aria-hidden="true"><span class="brand-glyph">氪</span></div><span class="eyebrow">A LITTLE CLARITY, A LOT OF POSSIBILITY</span><h2>今天想做些什么？</h2><p>把想法交给 Claude。一起看清问题，推进工作。</p><div class="welcome-suggestions"><button data-suggestion="请只读检查服务器当前运行状态，汇总 CPU、内存、磁盘和服务健康情况。不要修改配置或重启服务。"><span data-icon="server"></span><strong>看看服务器</strong><small>了解当前运行状态</small><span data-icon="arrow-up-right"></span></button><button data-suggestion="帮我分析当前工作目录和项目结构，说明关键文件、启动方式和需要关注的问题，先不要修改文件。"><span data-icon="folder"></span><strong>梳理一个项目</strong><small>从结构与关键问题入手</small><span data-icon="arrow-up-right"></span></button><button data-suggestion="我想制定一份运维任务计划。请先了解我的目标和约束，再整理可执行的步骤。"><span data-icon="sparkles"></span><strong>一起理清思路</strong><small>让下一步更清晰</small><span data-icon="arrow-up-right"></span></button></div><div class="welcome-location"><span class="status-dot"></span>你的工作在云端服务器上运行</div></div></div>
         <div class="composer-area">
           <button id="scroll-bottom" class="scroll-bottom" type="button" aria-label="滚动到最新消息" hidden><span data-icon="arrow-down"></span><span id="scroll-bottom-label">最新</span></button>
           <div id="composer-notices" class="composer-notices" hidden></div>
