@@ -12,6 +12,7 @@
 - [7. 额度与费用显示](#7-额度与费用显示)
 - [8. 商标](#8-商标)
 - [9. 社区交流群](#9-社区交流群)
+- [10. 第三方插件与皮肤](#10-第三方插件与皮肤)
 - [English summary](#english-summary)
 
 ---
@@ -79,7 +80,7 @@ Anthropic 在 [Claude Code 法律与合规说明](https://code.claude.com/docs/e
 
 ## 8. 商标
 
-Claude、Claude Code 与 Anthropic 是 Anthropic PBC 的商标。本项目只以文字说明它运行的是 Claude Code，项目名称与标志中不包含 Anthropic 的任何名称或标志，也不暗示与 Anthropic 存在任何关联。文中提到的其他商标归各自的所有者所有。
+Claude、Claude Code 与 Anthropic 是 Anthropic PBC 的商标。本项目只以文字说明它运行的是 Claude Code，标志中不使用 Anthropic 的任何名称或标志。项目名称中的「氪劳德」是爱好者起的谐音昵称，不是 Anthropic 的产品或品牌；本项目与 Anthropic 没有任何隶属、授权或背书关系。文中提到的其他商标归各自的所有者所有。
 
 ## 9. 社区交流群
 
@@ -88,6 +89,16 @@ QQ 群 **820116443** 是爱好者自发组织的交流群，用来交流本项�
 - 它**不是** Anthropic 的官方渠道，加入交流群也不意味着本项目提供任何技术支持承诺；
 - 本项目**不提供、不推荐、也不对接**任何第三方账号、额度或 API 中转与转售服务。群内任何人提供的产品、服务或信息都与本项目无关，请自行甄别，风险自负；
 - 请在交流中遵守你所在地的法律法规，以及 Anthropic 的条款与政策。
+
+## 10. 第三方插件与皮肤
+
+工作台支持安装第三方插件与皮肤，项目的创意工坊也收录网友投稿的作品：
+
+- 插件与皮肤由各自的作者开发并负责。收录进创意工坊只表示作品通过了基本审核，**不代表**本项目对其安全性、可用性或合规性作出任何保证或背书；标记为「官方」的作品同样按现状提供，不附带任何担保。
+- 插件运行在隔离的沙箱里，只能使用你授予的权限，但沙箱不能消除所有风险（见 [SECURITY.md](SECURITY.md#插件与创意工坊)）。是否安装、授予哪些权限，由你自己决定并承担相应后果。
+- 不得开发或使用插件来违反 Anthropic 的条款，例如共享、出租、转售或中转账号与额度，或规避用量限制与地区限制。这类作品不会被收录。
+- 向创意工坊投稿，即表示你有权以项目许可证或作品中写明的许可证发布这份作品，并且作品不侵犯他人的权利。
+- 第 5 节的责任限制同样适用于第三方插件与皮肤造成的任何损失。
 
 本声明可能随项目更新而修改，以仓库中的最新版本为准。
 
@@ -100,5 +111,6 @@ QQ 群 **820116443** 是爱好者自发组织的交流群，用来交流本项�
 - **One account, personal use only.** No account sharing, account rotation, resale or intermediation of Claude access, and no offering the workbench as a service to others.
 - **Supported regions only.** Use only where Anthropic supports Claude. Use while physically located in an unsupported region (for example, mainland China) is not allowed under Anthropic's Supported Regions Policy. Hosting Claude Code on an overseas server does not change where you are. Any account suspension or other loss caused by unsupported or cross-region use is solely your responsibility.
 - **You run a remote shell.** A web-exposed server shell and an AI agent that can make destructive mistakes are real risks. You are responsible for your deployment, approvals, and backups. The authors are not liable for any damages.
-- **Trademarks.** Claude, Claude Code, and Anthropic are trademarks of Anthropic PBC.
+- **Trademarks.** Claude, Claude Code, and Anthropic are trademarks of Anthropic PBC. The 氪劳德 in the project's Chinese name is a hobbyist nickname, not an Anthropic product or brand, and the project is not affiliated with or endorsed by Anthropic.
+- **Third-party plugins and skins.** Plugins and skins, including those listed in the workshop, are the responsibility of their authors. Listing is not an endorsement, and items marked official are also provided as is. Plugins run in a sandbox with only the permissions you grant, but that does not remove every risk. Plugins must not be used to share, resell, or relay Claude access, or to get around usage or regional limits.
 - **Community group.** The QQ group is an informal community chat, not an official channel. This project does not provide, endorse, or integrate with any third-party account, quota, or API resale service.

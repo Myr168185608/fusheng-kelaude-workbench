@@ -172,7 +172,7 @@ ssh -N -L 17880:127.0.0.1:17880 you@your-server
 > [!WARNING]
 > 重启服务会中断正在运行的任务。请在会话空闲时升级或重启。
 
-**备份**：会话记录、口令哈希与工作区都在 `/var/lib/cloud-ops-workbench/data`，定期备份这个目录即可。Claude 的登录凭据（`~/.claude`）属于你的账号安全信息，不要复制到其他机器或分享给他人。
+**备份**：会话记录、口令哈希、工作区，以及已安装的插件和插件数据都在 `/var/lib/cloud-ops-workbench/data`，定期备份这个目录即可。Claude 的登录凭据（`~/.claude`）属于你的账号安全信息，不要复制到其他机器或分享给他人。
 
 ## 11. 可选：Root 运维
 
@@ -200,11 +200,13 @@ sudo systemctl daemon-reload && sudo systemctl restart cloud-ops-workbench
 | 现象 | 原因与处理 |
 | --- | --- |
 | 服务启动失败，日志提示「未找到登录口令文件」 | 还没有设置口令，执行第 6 步。 |
-| 页面提示「请求来源不匹配」或「请从工作台页面发起操作」 | `WORKBENCH_ORIGIN` 与地址栏不一致，例如用 `localhost` 打开但配置的是 `127.0.0.1`。 |
+| 页面提示「请求来源不匹配」或「请从工作台页面操作」 | `WORKBENCH_ORIGIN` 与地址栏不一致，例如用 `localhost` 打开但配置的是 `127.0.0.1`。 |
 | 页面提示「工作台尚未登录 Claude 账号」 | 以服务账号执行 `claude auth status`；确认 `CLAUDE_BINARY` 指向的是服务账号安装的那个 `claude`。 |
 | 回复不是逐字出现，而是卡住后一次性出现 | 反向代理开启了缓冲，检查 `proxy_buffering off`。 |
 | 网页终端无法打开 | 服务器缺少 `python3`。 |
 | 文件编辑器只是一个纯文本框 | 还没有执行 `npm run build`。 |
+| 插件或皮肤把页面弄乱了 | 在地址后加 `?safe` 打开工作台，这个页面不加载插件、使用默认皮肤，在「创意工坊」的「已安装」页停用或卸载出问题的插件，在「皮肤」页卸载出问题的皮肤。也可以在配置里设置 `WORKBENCH_SAFE_MODE=1` 并重启服务，对所有浏览器禁用插件。 |
+| 创意工坊提示目录无法访问 | 服务器访问不了 `raw.githubusercontent.com`。可以把 `workshop/` 放到服务器能访问的 HTTPS 地址，用 `WORKBENCH_WORKSHOP_URL` 指向它；或者在「开发」页导入插件包。 |
 | 登录提示「尝试次数较多」 | 同一来源 IP 15 分钟内失败次数过多，稍后再试；若所有人都显示同一个 IP，检查 Nginx 的 `X-Forwarded-For` 设置。 |
 
 ## 13. 卸载

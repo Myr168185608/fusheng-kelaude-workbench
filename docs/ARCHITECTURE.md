@@ -17,16 +17,18 @@
 flowchart LR
   subgraph Browser["浏览器（桌面 / 手机）"]
     UI["单页应用<br/>对话 · 审批 · 终端 · 文件 · 监控"]
+    PLG["插件 iframe<br/>沙箱 · 不透明源"]
   end
   subgraph Host["你的云服务器"]
     NGX["Nginx<br/>HTTPS 终止"]
     WB["工作台服务<br/>Node.js · Express 5<br/>只监听 127.0.0.1"]
     CLI["官方 Claude Code CLI<br/>每轮对话一个子进程"]
     PTY["PTY 桥接<br/>python3 pty-bridge.py"]
-    DATA[("数据目录<br/>会话记录 · 口令哈希")]
+    DATA[("数据目录<br/>会话记录 · 口令哈希 · 插件")]
     WS[("会话工作区<br/>每个会话一个目录")]
   end
   API["Anthropic 服务"]
+  SHOP["创意工坊目录<br/>registry.json · 安装包"]
 
   UI -- "HTTPS：REST + SSE" --> NGX --> WB
   WB -- "stdin / stdout<br/>stream-json" --> CLI
@@ -34,6 +36,8 @@ flowchart LR
   WB -- "终端输入输出" --> PTY
   WB --- DATA
   CLI --- WS
+  UI <-->|MessageChannel| PLG
+  WB -- "HTTPS · 校验 sha256" --> SHOP
 ```
 
 | 组件 | 职责 |
@@ -42,6 +46,7 @@ flowchart LR
 | **工作台服务**（`server.mjs`、`lib/`） | 登录鉴权、会话存储、启动与管理 CLI 子进程、把 CLI 事件整理成网页可用的状态，并通过 SSE 推送。 |
 | **Claude Code CLI** | 官方、未修改的 `claude` 命令。真正与 Anthropic 通信、调用工具、执行命令的都是它。 |
 | **PTY 桥接**（`lib/pty-bridge.py`） | 为网页终端提供真实的伪终端，并负责清理终端里启动的后代进程。 |
+| **插件与皮肤**（`public/plugin-host.js`、`lib/plugins.mjs`） | 插件运行在浏览器里的沙箱 iframe 中，只能通过消息通道向页面上的插件宿主要数据；服务器只保存插件文件与插件数据，从不执行插件代码。皮肤只是一组颜色变量。 |
 
 ---
 
@@ -167,6 +172,35 @@ CLAUDE_CONFIG_DIR  CLAUDE_SECURESTORAGE_CONFIG_DIR  CLAUDECODE  NODE_OPTIONS  PY
 
 `WORKBENCH_ROOT_OPERATIONS=1` 只做一件事：通过 `--append-system-prompt` 告诉 Claude，服务器所有者允许它按本机 sudo 策略执行特权命令，并提醒它控制改动范围、重启前先备份。**它本身不授予任何权限**，Claude 实际能做什么完全由服务账号的 sudoers 规则决定。
 
+### 10. 插件与创意工坊
+
+插件扩展的是**网页界面**：它运行在浏览器里，服务器只保存插件文件和插件数据，**从不执行**插件代码。
+
+```mermaid
+sequenceDiagram
+  participant P as 插件 iframe（沙箱）
+  participant H as 插件宿主（plugin-host.js）
+  participant S as 工作台服务
+  H->>P: 创建 sandbox="allow-scripts" 的 iframe
+  P->>S: GET /plugin-frame/:id/:surface
+  S-->>P: SDK 与插件脚本，附带只允许这些文件的 CSP
+  H->>P: workbench:init 与私有 MessageChannel 端口
+  P->>H: storage.get()
+  Note over H: 核对权限与调用频率
+  H->>S: GET /api/plugins/:id/storage
+  S-->>H: 插件数据
+  H-->>P: 返回结果
+  H-->>P: usage、system、activity 等事件（按权限推送）
+```
+
+- **插件宿主**（`public/plugin-host.js`）为插件的每个界面（面板、小组件、浮层、后台）创建一个沙箱 iframe。页面由服务器的 `/plugin-frame/:id/:surface` 生成：先加载 SDK，再加载插件自己的脚本，附带的内容安全策略只允许这两部分文件。插件文件通过带 HMAC 签名的地址提供，因为不透明源的页面不会带上登录 Cookie。
+- iframe 加载后，宿主用 `postMessage` 把一个私有的 `MessageChannel` 端口交给它，此后插件的每次调用都走这个通道。宿主先核对权限与频率，再用页面已有的数据作答，需要时以工作台页面自己的登录状态调用接口，例如会话统计和插件存储。插件本身拿不到 Cookie，也无法直接调用工作台接口。
+- 会话、额度、服务器指标与运行动态，由宿主按插件获得的权限转发成事件。
+- **皮肤**是一组 CSS 颜色变量，安装时由服务器逐个校验。`public/themes.js` 把皮肤应用到页面、终端与编辑器；`public/theme-boot.js` 在样式表生效之前重放上一次的皮肤，深色皮肤打开时不会闪白。
+- **创意工坊**是一个静态目录：`workshop/registry.json` 列出作品，`workshop/packages/` 存放安装包，两者都由 `npm run workshop:build` 从 `workshop/src/` 生成。工作台通过 HTTPS 读取目录，安装时下载安装包、校验 sha256，再解包到数据目录。`WORKBENCH_WORKSHOP_URL` 可以换成自建的目录，或者设为 `off` 关闭创意工坊。
+
+接口与权限的完整说明见 [插件与皮肤开发指南](PLUGINS.md)，安全边界见 [SECURITY.md](../SECURITY.md#插件与创意工坊)。
+
 ---
 
 ## 数据存放在哪里
@@ -177,6 +211,10 @@ CLAUDE_CONFIG_DIR  CLAUDE_SECURESTORAGE_CONFIG_DIR  CLAUDECODE  NODE_OPTIONS  PY
 ├── web-sessions.json              浏览器登录状态（只保存令牌的 SHA-256 摘要）
 ├── sessions/
 │   └── <会话 ID>.json             对话记录、工具步骤、用量统计
+├── plugins/                       已安装的插件与皮肤，以及开发中的插件，每个一个目录
+├── plugin-data/
+│   └── <插件 ID>.json             插件自己保存的数据（明文，每个最多 256 KB）
+├── plugin-state.json              插件的启用状态与已授予的权限
 └── workspaces/                    默认工作区根目录（可用 WORKBENCH_WORKSPACES 另行指定）
     └── <会话 ID>/                 该会话的工作目录
 ```
@@ -200,6 +238,12 @@ CLAUDE_CONFIG_DIR  CLAUDE_SECURESTORAGE_CONFIG_DIR  CLAUDECODE  NODE_OPTIONS  PY
 | `lib/claude-environment.mjs` | CLI 子进程的环境变量过滤 |
 | `lib/system.mjs` | CPU、内存、磁盘采样与 CLI 登录状态 |
 | `lib/root-operations.mjs` | Root 运维开关 |
+| `lib/plugins.mjs` | 插件与皮肤：清单校验、安装与卸载、插件页面与文件、插件存储、创意工坊目录 |
 | `public/` | 单页应用：`index.html`、`app.js`、`styles.css` |
-| `scripts/` | Monaco 编辑器打包、口令设置 |
+| `public/plugin-host.js` · `public/plugin-sdk/` | 插件宿主（沙箱 iframe、消息通道、权限检查），以及插件页面加载的 SDK 与基础样式 |
+| `public/themes.js` · `public/theme-boot.js` | 内置皮肤与应用皮肤的逻辑；在首屏绘制前重放上一次的皮肤 |
+| `public/workshop.js` | 创意工坊与插件管理界面 |
+| `plugins/` | 内置插件：用量统计、运维脉搏、小云 |
+| `workshop/` | 创意工坊目录：作品源码、安装包与 `registry.json` |
+| `scripts/` | Monaco 编辑器打包、口令设置、插件脚手架与打包（`plugin:new`、`plugin:pack`）、创意工坊目录生成（`workshop:build`） |
 | `test/` | `node --test` 测试 |
