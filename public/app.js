@@ -44,7 +44,7 @@ const assistantMark = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 
 $$('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); });
 
 const storage = { get(key) { try { return localStorage.getItem(key); } catch { return null; } }, set(key, value) { try { if (value) localStorage.setItem(key, value); else localStorage.removeItem(key); } catch {} } };
-const state = { csrf: '', sessions: [], session: null, activeId: null, system: null, account: null, config: {}, archived: false, view: 'chat', source: null, connected: false, authenticated: false, busy: false, renameId: null, sessionRequest: 0, selectionVersion: 0, refreshPending: false, refreshTimer: null, lastBootstrap: 0, syncNeeded: false, draftLoaded: false, pendingSend: null };
+const state = { csrf: '', sessions: [], session: null, activeId: null, system: null, account: null, execution: null, config: {}, archived: false, view: 'chat', source: null, connected: false, authenticated: false, busy: false, renameId: null, sessionRequest: 0, selectionVersion: 0, refreshPending: false, refreshTimer: null, lastBootstrap: 0, syncNeeded: false, draftLoaded: false, pendingSend: null };
 const ide = { usage: null, workspaceOpen: false, directory: '', explorer: 'files', entries: [], documents: new Map(), activeDocument: null, editor: null, monacoLoading: null, syncingEditor: false, preview: false, fileRequest: 0, attachments: new Map(), pathAction: null, terminal: null, terminalSource: null, xterm: null, fit: null, terminalKind: 'shell', inputBuffer: '', inputTimer: null, inputPending: false, terminalStarting: false, commandIndex: 0, commands: [], slashIndex: 0 };
 // View state that survives live re-renders: keyed transcript rows, streaming reveal and scroll-follow state,
 // expanded activities/steps, loaded full tool records, sync timers.
@@ -128,7 +128,7 @@ async function refreshBootstrap() {
   const data = await api('/api/bootstrap');
   if (!state.authenticated) return;
   state.sessions = Array.isArray(data.sessions) ? data.sessions : []; state.system = data.system ?? state.system;
-  state.account = data.account ?? state.account; state.config = data.config || state.config; state.lastBootstrap = Date.now(); renderVersion();
+  state.account = data.account ?? state.account; state.execution = data.execution ?? null; state.config = data.config || state.config; state.lastBootstrap = Date.now(); renderVersion();
   if (data.usage) ide.usage = data.usage;
   configureEffort(); renderUsage();
   renderSessions(); renderServer(); renderTitleMeta(); updateControls();
@@ -158,6 +158,7 @@ function connectEvents() {
   source.onmessage = event => {
     let data; try { data = JSON.parse(event.data); } catch { return; }
     if (data.type === 'session-patch') { onPatch(data); return; }
+    if (data.type === 'runtime-updated') refreshBootstrap().catch(() => {});
     if (data.type === 'system') { state.system = data.system; renderServer(); plugins.system(); }
     if (data.type === 'usage') { ide.usage = data.usage; renderUsage(); renderNotices(); plugins.usage(); }
     if (data.type === 'terminal-updated' || data.type === 'terminal' || data.type === 'terminals') refreshTerminals().catch(() => {});
@@ -957,7 +958,7 @@ function renderNotices() {
   if (session?.archived) notices.push({ tone: 'muted', icon: 'archive', text: '这个会话已归档，记录完整保留。', action: '<button type="button" data-restore-session>恢复会话</button>' });
   const metrics = session?.metrics || {}, ctx = finite(metrics.contextTokens) && finite(metrics.contextWindow) && metrics.contextWindow > 0 ? metrics.contextTokens / metrics.contextWindow * 100 : null;
   if (ctx !== null && ctx >= 80 && !running(session) && !session?.archived) notices.push({ tone: 'warn', icon: 'layers', text: `上下文已用 ${ctx.toFixed(0)}%，接近上限，可先压缩再继续。`, action: '<button type="button" data-native-command="/compact">原生终端 /compact</button>' });
-  if (state.account && state.account.loggedIn === false) notices.push({ tone: 'warn', icon: 'lock', text: '工作台尚未登录 Claude 账号，请在服务器上用官方 Claude Code 完成登录后再使用。', action: '<button type="button" data-reload-page>刷新页面</button>' });
+  if (!accountReady()) notices.push({ tone: 'warn', icon: 'lock', text: escape(state.execution?.detail || '工作台尚未登录 Claude 账号，请在服务器上用官方 Claude Code 完成登录后再使用。'), action: '<button type="button" data-reload-page>刷新页面</button>' });
   if (state.config.version && ui.pageVersion && state.config.version !== ui.pageVersion) notices.push({ tone: 'info', icon: 'refresh', text: `工作台已更新到 v${escape(state.config.version)}，刷新页面即可使用新版本。`, action: '<button type="button" data-reload-page>刷新页面</button>' });
   const usage = selectedUsage(), near = [['5 小时额度', usage.fiveHour], ['本周额度', usage.sevenDay]].find(([, w]) => finite(w?.utilization) && w.utilization >= 90 && !(w.resetsAt && dateValue(w.resetsAt) <= Date.now()));
   const switching = '';
@@ -1020,15 +1021,15 @@ function updateControls() {
   $('#start-shell').disabled = ide.terminalStarting || inRun || terminalBusy || loginBusy || state.accountSwitchPending;
   $('#start-claude').disabled = ide.terminalStarting || inRun || terminalBusy || loginBusy || !ready || state.accountSwitchPending;
   $('#message-input').disabled = archived || !ready;
-  $('#message-input').placeholder = archived ? '这个会话已归档，恢复后可继续对话。' : !ready ? '工作台尚未登录 Claude 账号' : inRun ? '可以先写下下一步，当前任务结束后发送…' : otherRun ? `「${otherRun.title || '另一个会话'}」正在运行，完成后即可发送…` : '描述任务，或者先聊聊你的想法…';
+  $('#message-input').placeholder = archived ? '这个会话已归档，恢复后可继续对话。' : !ready ? (state.execution?.detail || '工作台尚未登录 Claude 账号') : inRun ? '可以先写下下一步，当前任务结束后发送…' : otherRun ? `「${otherRun.title || '另一个会话'}」正在运行，完成后即可发送…` : '描述任务，或者先聊聊你的想法…';
   $('#active-run-strip').hidden = !inRun;
   $('#active-run-strip').classList.toggle('wait', state.session?.status === 'awaiting_approval');
   $('#active-run-label').textContent = inRun ? currentActivity(state.session) : '';
   $('#rename-current').hidden = !state.activeId;
   const mode = $('#mode-select').value;
-  $('#composer-status').innerHTML = `<span class="tiny-dot"></span>${terminalBusy ? '终端运行中 · 结束进程后可继续对话' : !ready ? '未登录 Claude 账号' : mode === 'plan' ? '只读计划 · 先分析，再行动' : mode === 'bypassPermissions' ? `工具自动同意 · ${state.config.rootOperations ? 'Root 运维已启用' : '无 sudo 权限'}` : `云端执行 · 操作逐次确认${state.config.rootOperations ? ' · Root 运维' : ''}`}`;
+  $('#composer-status').innerHTML = `<span class="tiny-dot"></span>${terminalBusy ? '终端运行中 · 结束进程后可继续对话' : !ready ? '执行环境尚未就绪' : mode === 'plan' ? '只读计划 · 先分析，再行动' : mode === 'bypassPermissions' ? `工具自动同意 · ${state.config.rootOperations ? 'Root 运维已启用' : '无 sudo 权限'}` : `云端执行 · 操作逐次确认${state.config.rootOperations ? ' · Root 运维' : ''}`}`;
   $('#composer-status').className = `mode-${mode}`;
-  $('#ide-account-status').textContent = `${activeAccount?.label || 'Claude Code'}${auth.subscriptionType ? ` · ${auth.subscriptionType}` : ''}${auth.version ? ` · ${auth.version}` : ''}`;
+  $('#ide-account-status').textContent = `${state.execution?.label || activeAccount?.label || 'Claude Code'}${auth.subscriptionType ? ` · ${auth.subscriptionType}` : ''}${auth.version ? ` · ${auth.version}` : ''}`;
   $('#ide-session-state').textContent = loginBusy ? '账号授权中 · 完成或取消后继续' : terminalBusy ? '终端进程运行中' : state.session?.status === 'awaiting_approval' ? '等待你的确认' : inRun ? currentActivity(state.session) : otherRun ? `「${otherRun.title || '另一个会话'}」运行中` : '就绪';
   $('#export-session').disabled = !state.activeId;
   renderRunPill(); renderNotices(); updateDocumentTitle(); updateRunClock();
@@ -1080,7 +1081,7 @@ function configureEffort(value = state.session?.effort || $('#effort-select').va
 function selectedAccountId() { return 'primary'; }
 function selectedAccount() { return state.account; }
 function loginInProgress() { return null; }
-function accountReady() { return state.account ? state.account.loggedIn !== false : true; }
+function accountReady() { return state.execution ? state.execution.ready !== false : state.account?.loggedIn !== false; }
 function selectedUsage() { return ide.usage || {}; }
 function syncAccountSelection() {}
 

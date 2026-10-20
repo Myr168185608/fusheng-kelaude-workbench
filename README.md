@@ -6,13 +6,13 @@
 
 <p><b>在浏览器里，用 Claude Code 运维你的云服务器。</b></p>
 
-<p>对话 · 审批 · 终端 · 文件 · 运行监控，一个页面全部搞定。<br>插件 · 创意工坊 · 11 款皮肤，随你打造。<br>自托管 · 单账号 · 每一步都由你确认。</p>
+<p>对话 · 审批 · 终端 · 文件 · 运行监控，一个页面全部搞定。<br>插件 · 创意工坊 · 11 款皮肤，随你打造。<br>自托管工作台底座 · 可选多账号与任务续跑。</p>
 
 <p>
-<a href="https://github.com/qiuxinyuan321/cloud-ops-workbench/actions/workflows/ci.yml"><img src="https://github.com/qiuxinyuan321/cloud-ops-workbench/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<a href="https://github.com/qiuxinyuan321/fusheng-kelaude-workbench/actions/workflows/ci.yml"><img src="https://github.com/qiuxinyuan321/fusheng-kelaude-workbench/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 <img src="https://img.shields.io/badge/Node.js-%E2%89%A5%2020-2f6a52?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node.js ≥ 20">
 <img src="https://img.shields.io/badge/Express-5-2f6a52?style=flat-square&logo=express&logoColor=white" alt="Express 5">
-<img src="https://img.shields.io/badge/self--hosted-single%20account-14282a?style=flat-square" alt="Self-hosted, single account">
+<img src="https://img.shields.io/badge/self--hosted-optional%20plugins-14282a?style=flat-square" alt="Self-hosted, optional plugins">
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f6a52?style=flat-square" alt="MIT License"></a>
 </p>
 
@@ -44,14 +44,14 @@
 
 **浮生氪劳德工作台**是一个部署在你自己服务器上的网页应用。它在服务器上运行官方的 [Claude Code](https://code.claude.com/docs/en/overview) CLI，把对话、工具审批、终端、工作区文件与运行监控整合进一个页面。
 
-打开浏览器（电脑或手机都行），用自然语言告诉 Claude 你想做什么：检查服务器、写配置、看日志、排查故障。它会在服务器上一步步执行，每一条命令、每一处文件改动都实时呈现在你眼前。重要的操作，**在你点下「允许」之前不会执行**。
+打开浏览器（电脑或手机都行），用自然语言告诉 Claude 你想做什么：检查服务器、写配置、看日志、排查故障。工具调用、文件改动与运行结果会实时显示。**新会话默认使用「自动同意」**（`bypassPermissions`）；需要先审核工具请求时，请主动选择「逐次确认」，也可以选择「只读计划」。
 
 | 你说 | Claude 在服务器上做 |
 | --- | --- |
 | 「给这台服务器做一次体检，只读，别改东西。」 | 查看负载、内存、磁盘与失败的服务，汇总成一份结论 |
-| 「帮我配好 Nginx 反向代理和 HTTPS。」 | 写配置、`nginx -t` 校验，等你批准后再平滑重载 |
+| 「帮我配好 Nginx 反向代理和 HTTPS。」 | 写配置、`nginx -t` 校验；选择逐次确认时先审核相应工具请求 |
 | 「/var/log 越来越大，配一下日志轮转。」 | 生成 logrotate 配置并解释每一项的作用 |
-| 「证书续期失败了，看看为什么。」 | 读日志、定位原因、给出修复方案，由你决定是否执行 |
+| 「证书续期失败了，只分析，先不要修复。」 | 读日志、定位原因并给出修复建议 |
 
 ## 功能亮点
 
@@ -65,8 +65,8 @@
 </td>
 <td width="50%" valign="top">
 
-**🛡️ 逐次确认**<br>
-命令、文件改动与执行计划都会变成审批卡片。看清完整命令和差异，再决定允许还是拒绝。
+**🛡️ 可选逐次确认**<br>
+选择逐次确认模式后，CLI 的权限请求会变成审批卡片。默认自动同意模式会直接执行普通工具请求。
 
 </td>
 </tr>
@@ -116,7 +116,7 @@ Token 构成、上下文占用、执行轨迹、文件活动与 API 等价费用
 <td valign="top">
 
 **🧩 插件底座**<br>
-一个 `manifest.json` 加一个 JS 文件就是一个插件：面板、监控小组件、桌面宠物、状态栏，都运行在隔离沙箱里，只能使用你授予的权限。
+界面插件运行在沙箱 iframe；多账号与任务续跑作为独立、默认关闭的可信服务端插件随源码提供，启用前需要授权。
 
 </td>
 <td valign="top">
@@ -137,7 +137,7 @@ Token 构成、上下文占用、执行轨迹、文件活动与 API 等价费用
 </tr>
 <tr>
 <td align="center"><sub><b>实时执行</b> · 每一次工具调用都在时间线上展开</sub></td>
-<td align="center"><sub><b>逐次确认</b> · 特权命令执行前，由你亲自批准</sub></td>
+<td align="center"><sub><b>逐次确认模式</b> · 查看 CLI 发出的工具权限请求</sub></td>
 </tr>
 <tr>
 <td><img src="docs/assets/screenshots/monitor.webp" alt="运行监控"></td>
@@ -196,9 +196,11 @@ Token 构成、上下文占用、执行轨迹、文件活动与 API 等价费用
 | 📊 用量统计 | 面板 · 小组件 · 状态栏 | 额度走势、每日费用估算、模型分布与消耗最多的会话 |
 | 💓 运维脉搏 | 小组件 | CPU 与内存的实时脉搏、多时区时钟，一键填入只读巡检指令 |
 | ☁️ 小云 | 悬浮窗 | 跟着任务思考、干活、庆祝的桌面宠物，额度紧张时提醒你歇一歇 |
+| 🔁 多账号轮询 | 面板 · 可信后端 | 独立官方登录配置、会话绑定、每轮轮询或按额度选择 |
+| ⏯️ 任务断点续跑 | 面板 · 可信后端 | 保存任务检查点，在原会话和工作区继续；可另行开启有限自动恢复 |
 | 🍅 番茄专注 | 面板 · 后台 · 状态栏 | 番茄工作法计时器，来自创意工坊 |
 
-前三个随工作台内置，默认不启用。**11 款皮肤**里有 9 款内置，琥珀和霜来自创意工坊：
+前五个随工作台内置，**全部默认关闭**。多账号与续跑逻辑分别位于 [`plugins/account-pool/`](plugins/account-pool/README.md) 和 [`plugins/task-resume/`](plugins/task-resume/README.md)，可以分别启用和维护；底座只提供通用插件接口、执行锁、生命周期与存储边界。**11 款皮肤**里有 9 款内置，琥珀和霜来自创意工坊：
 
 <table>
 <tr>
@@ -226,7 +228,9 @@ npm run plugin:new -- my-plugin    # 生成一个带面板、小组件和命令�
 npm run plugin:pack -- my-plugin   # 打包成一个文件，发给朋友导入
 ```
 
-插件运行在隔离的沙箱里，读不到对话记录、文件和凭据，也不能执行命令；它能用的每一项权限都要你确认。完整的 SDK、皮肤变量和上架流程见 **[插件与皮肤开发指南](docs/PLUGINS.md)**，欢迎向 [`workshop/`](workshop) 提交你的作品。
+普通界面插件运行在沙箱里，不能直接读取对话正文、文件或凭据，也不能执行命令。可信服务端插件通过额外的 `backend` 高风险权限，在服务进程中运行：只允许管理员随源码安装，不能通过创意工坊、网页导入或开发目录获得该能力。完整的 SDK、升级边界和上架流程见 **[插件与皮肤开发指南](docs/PLUGINS.md)**。
+
+**两个可选功能怎么使用**：多账号插件为额外账号建立独立 `CLAUDE_CONFIG_DIR`，通过官方命令登录；每轮开始时选账号，仅迁移当前会话记录。任务续跑插件保存检查点，用官方 `--resume` 继续原会话；自动恢复还需单独开启，手动停止和等待审批不会自动继续。检查点不等于进程快照，也不能保证外部操作恰好执行一次。使用独立账号的会话在插件停用后会被阻止续聊，避免意外落回默认账号；重新启用插件即可处理。
 
 ## 工作原理
 
@@ -241,8 +245,8 @@ flowchart LR
   W -- "PTY" --> T["网页终端"]
 ```
 
-1. **原样调用官方 CLI**：每轮对话启动一次 `claude -p --input-format stream-json --output-format stream-json …`。登录认证、模型请求、工具执行都由 CLI 自己完成，工作台不读取、也不保存你的 Claude 凭据。
-2. **审批走 stdio**：`--permission-prompt-tool stdio` 把权限请求交给工作台，变成网页上的审批卡片，你的决定再原路交还给 CLI。
+1. **原样调用官方 CLI**：每轮对话启动一次 `claude -p --input-format stream-json --output-format stream-json …`。登录认证、模型请求、工具执行都由 CLI 自己完成，工作台不读取或复制登录凭据。可选账号插件只选择对应配置目录。
+2. **审批走 stdio**：`--permission-prompt-tool stdio` 把权限请求交给工作台；选择逐次确认时显示审批卡片，自动同意模式则按所选权限策略处理。
 3. **实时推送**：CLI 的流式事件被整理成带序号的增量补丁，通过 SSE 推送；发现缺口就自动重新取快照。
 4. **一次只做一件事**：同一时间只运行一轮对话或一个终端，避免多个任务同时修改同一台服务器。
 
@@ -253,13 +257,15 @@ flowchart LR
 **准备**：一台你拥有管理权限的 Linux 服务器，Node.js ≥ 20、npm、git 与 python3（网页终端需要），并已按 [官方文档](https://code.claude.com/docs/en/setup) 安装 Claude Code，用**你自己的账号**完成登录。
 
 ```bash
-git clone https://github.com/qiuxinyuan321/cloud-ops-workbench.git
-cd cloud-ops-workbench
+git clone https://github.com/qiuxinyuan321/fusheng-kelaude-workbench.git
+cd fusheng-kelaude-workbench
 npm ci
 npm run build          # 打包 Monaco 编辑器；不打包时编辑器会退化为纯文本框
 npm run set-password   # 设置登录口令（至少 12 个字符，只保存 scrypt 哈希）
 npm start              # 监听 http://127.0.0.1:17880
 ```
+
+交给其他 Agent 部署时，使用 **[Agent / 单命令部署入口](docs/DEPLOYMENT.md#agent--单命令部署)**：`node scripts/deploy.mjs --target /绝对部署目录` 会生成独立发布目录、配置和启动入口。官方 CLI 登录及用户提供的工作台口令仍是前置条件；脚本不会自动启用插件。部署后使用 `scripts/doctor.mjs` 检查环境与健康接口，具体参数和验收范围见部署指南。
 
 工作台只监听本机。在**你自己的电脑**上建立 SSH 隧道，然后用浏览器打开 <http://127.0.0.1:17880>：
 
@@ -296,7 +302,7 @@ ssh -N -L 17880:127.0.0.1:17880 you@your-server
 | `CLAUDE_BINARY` | `claude` | Claude Code 可执行文件，默认从 `PATH` 查找 |
 | `WORKBENCH_ROOT_OPERATIONS` | 未启用 | 设为 `1` 时告诉 Claude 可以按本机 sudo 策略执行特权命令。**它本身不授予任何权限**，详见 [Root 运维](SECURITY.md#root-运维) |
 | `WORKBENCH_WORKSHOP_URL` | 本项目的 [`workshop/`](workshop) | 创意工坊目录地址，只接受 HTTPS。设为 `off` 关闭创意工坊，导入插件包不受影响 |
-| `WORKBENCH_SAFE_MODE` | 未启用 | 设为 `1` 时禁用所有插件，用于排查问题。只想临时排查时，在地址后加 `?safe` 即可 |
+| `WORKBENCH_SAFE_MODE` | 未启用 | 设为 `1` 并重启服务后，所有插件界面与服务端插件停止加载；`?safe` 仅隐藏当前浏览器的插件界面，不停用后端 |
 
 ## 安全模型
 
@@ -306,14 +312,14 @@ ssh -N -L 17880:127.0.0.1:17880 you@your-server
 - 口令只保存 scrypt 哈希，登录限流；会话 Cookie 带有 `HttpOnly`、`SameSite=Strict`，在 HTTPS 下另加 `Secure`；
 - 所有写操作都要校验来源与 CSRF 令牌；严格的 CSP，不加载任何外部资源；
 - 以专用普通账号运行，systemd 加固，**默认不能使用 sudo**；需要时只按命令授权，并配合「逐次确认」模式使用；
-- 插件运行在不透明源的沙箱 iframe 中，只能通过受权限控制的通道读取你授予的数据，服务器从不执行插件代码。
+- 普通插件界面运行在不透明源 iframe 中；服务端插件是管理员随源码安装、单独授权的可信 Node.js 模块，拥有服务账号权限，不能视作浏览器沙箱。
 
 威胁模型、防护边界与部署检查清单见 **[SECURITY.md](SECURITY.md)**。
 
 ## 项目结构
 
 ```text
-cloud-ops-workbench/
+fusheng-kelaude-workbench/
 ├── server.mjs              # Express 应用：鉴权、REST、SSE、对话调度
 ├── lib/
 │   ├── claude-runner.mjs   # CLI 子进程与 stream-json 协议解析
@@ -324,13 +330,14 @@ cloud-ops-workbench/
 │   ├── terminal.mjs        # 网页终端
 │   ├── pty-bridge.py       # PTY 桥接与进程清理
 │   ├── plugins.mjs         # 插件与皮肤的校验、安装、沙箱页面和创意工坊
+│   ├── server-plugins.mjs  # 可信后端的通用宿主、生命周期与会话归属门禁
 │   └── …                   # 鉴权、环境隔离、系统监控、Root 运维开关
 ├── public/                 # 单页应用：index.html · app.js · styles.css
 │   ├── plugin-host.js      # 插件宿主：沙箱 iframe 与权限通道
 │   ├── plugin-sdk/         # 插件 SDK（window.workbench）与基础样式
 │   ├── themes.js           # 内置皮肤与皮肤变量
 │   └── workshop.js         # 创意工坊界面
-├── plugins/                # 内置插件：用量统计 · 运维脉搏 · 小云
+├── plugins/                # 默认关闭；含独立 account-pool / task-resume 目录
 ├── workshop/               # 创意工坊目录：作品源码、插件包与 registry.json
 ├── scripts/                # 编辑器打包、口令设置、插件脚手架与打包
 ├── deploy/                 # systemd · Nginx · sudoers 示例
@@ -360,10 +367,10 @@ npm run workshop:build              # 重建创意工坊目录（--check 只检�
 </details>
 
 <details>
-<summary><b>为什么只支持一个账号？可以给朋友或团队用吗？</b></summary>
+<summary><b>支持多个 Claude 账号吗？能作为团队工作台吗？</b></summary>
 <br>
 
-工作台是为「一个人运维自己的服务器」设计的。Anthropic 的条款不允许共享账号、转售或中转访问，Pro 与 Max 套餐的额度也以普通的个人使用为前提。请不要把部署好的工作台开放给他人使用。团队场景请使用 Anthropic 提供的 Team、Enterprise 套餐或 API。
+底座默认使用服务账号原有的官方登录配置，启用「多账号轮询」后可以管理多个独立官方配置。它仍是个人管理的工作台：网页登录没有多人角色、租户隔离或配额分账，多账号插件也不是账号共享系统。团队场景需要另行选择符合要求的协作与权限方案。
 
 </details>
 
@@ -371,7 +378,7 @@ npm run workshop:build              # 重建创意工坊目录（--check 只检�
 <summary><b>工作台会接触我的 Claude 登录凭据吗？</b></summary>
 <br>
 
-不会。登录通过 Claude Code 自带的官方流程完成，凭据由 CLI 自己保存在服务账号的配置目录里。工作台只启动 CLI 进程，还会在启动前移除可能改变账号或服务商的环境变量，确保 CLI 使用你登录的那一个账号。
+本仓库代码不读取或复制登录凭据。登录通过 Claude Code 官方流程完成，凭据由 CLI 自己保存。默认账号沿用原配置；可选账号插件为额外账号指定独立配置目录。启动前会移除外部传入的认证和配置覆盖变量，再应用服务端选定的目录。额外账号的官方配置位于工作台数据目录内，备份时应按敏感数据保护。
 
 </details>
 
@@ -411,7 +418,7 @@ npm run workshop:build              # 重建创意工坊目录（--check 只检�
 <summary><b>第三方插件安全吗？</b></summary>
 <br>
 
-插件运行在不透明源的沙箱 iframe 里，拿不到工作台的 Cookie 和页面内容，读不到对话记录、文件和凭据，不能执行命令，内容安全策略也不允许它连接外部地址；它只能使用你启用时确认过的权限。创意工坊的安装包会校验 sha256。不过沙箱不是万能的：插件可以在自己的面板里画出仿冒的界面，可能通过 WebRTC 等少数通道把它有权看到的数据带出去，拥有「插入输入框」权限的插件还可以放入误导性的文字。请只安装你信任的作者的插件，发送前读一遍输入框里的内容。详见 [插件开发指南 · 安全模型](docs/PLUGINS.md#安全模型)。
+通过创意工坊或网页导入的界面插件运行在不透明源 iframe 中，拿不到工作台的 Cookie 和页面内容，不能直接读取对话正文、文件、凭据或执行命令；它只能使用已授予的 SDK 权限。安装包会校验 sha256，但插件仍可能仿冒界面、通过少数侧信道泄露已获授权的数据，或向输入框插入误导文字。管理员随源码安装的可信后端拥有服务账号权限，需要按服务端代码审阅。详见 [插件开发指南 · 安全模型](docs/PLUGINS.md#安全模型)。
 
 </details>
 
@@ -427,7 +434,7 @@ npm run workshop:build              # 重建创意工坊目录（--check 只检�
 <summary><b>插件或皮肤把页面弄乱了怎么办？</b></summary>
 <br>
 
-在地址后加 `?safe` 打开页面，进入安全模式：不加载任何插件，固定使用默认皮肤。然后在「创意工坊」的「已安装」页停用或卸载出问题的插件，在「皮肤」页卸载出问题的皮肤。
+在地址后加 `?safe` 打开页面：当前浏览器不加载插件界面，固定使用默认皮肤；已启用的服务端插件仍会运行。需要停用账号路由或自动续跑时，在插件管理中停用相应插件，或设置 `WORKBENCH_SAFE_MODE=1` 并重启服务。服务器安全模式也会保留会话归属门禁，不会让原本使用独立账号的会话切回默认账号。
 
 </details>
 
@@ -437,7 +444,7 @@ npm run workshop:build              # 重建创意工坊目录（--check 只检�
 
 欢迎加入爱好者交流群 **820116443**，交流部署与使用心得。交流群不是 Anthropic 的官方渠道，本项目也不提供、不推荐任何第三方账号、额度或 API 中转服务，详见 [免责声明 · 社区交流群](DISCLAIMER.md#9-社区交流群)。
 
-Bug 与建议请提交 [Issue](https://github.com/qiuxinyuan321/cloud-ops-workbench/issues)；安全问题请按 [SECURITY.md](SECURITY.md#报告安全问题) 私下报告。
+Bug 与建议请提交 [Issue](https://github.com/qiuxinyuan321/fusheng-kelaude-workbench/issues)；安全问题请按 [SECURITY.md](SECURITY.md#报告安全问题) 私下报告。
 
 ## 免责声明
 

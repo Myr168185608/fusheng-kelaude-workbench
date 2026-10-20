@@ -1,5 +1,86 @@
 # 部署指南
 
+## Agent / 单命令部署
+
+仓库地址为 `https://github.com/qiuxinyuan321/fusheng-kelaude-workbench`。下面的自动部署入口适用于 Linux 和 macOS；长期运行推荐 Linux + systemd。文末原有手工安装方式保留，`cloud-ops-workbench` 目录和服务名只是兼容已有安装的技术标识。
+
+前置条件：Node.js ≥ 20、npm、Python 3，以及已经由**实际运行工作台的同一系统用户**安装并登录的官方 Claude Code。安装 Claude 或首次 OAuth 登录需要用户完成。脚本不创建 Claude 账号、导入认证材料、修改 sudo、防火墙或 Nginx。工作台默认仍走底座原有执行逻辑；可选功能需按 [插件文档](PLUGINS.md) 单独启用。
+
+先克隆源码；源码目录与部署目录必须分开：
+
+```bash
+git clone https://github.com/qiuxinyuan321/fusheng-kelaude-workbench.git
+cd fusheng-kelaude-workbench
+node scripts/deploy.mjs --target /home/workbench/fusheng-workbench
+```
+
+这一条命令会在**明确指定的目标目录**复制源码、执行 `npm ci --ignore-scripts` 和编辑器构建，生成配置、启动脚本和 systemd 用户服务草稿。默认监听 `127.0.0.1:17880`。它不启动服务、不生成默认口令、不自动启用可选插件。没有口令的部署属于“文件已就绪”，还不能启动。
+
+用户已通过安全渠道准备好口令文件时，可以非交互完成部署并在前台启动：
+
+```bash
+# 文件由用户事先提供且仅运行账号可读；不要把真实口令写进命令参数、Git 或日志。
+node scripts/deploy.mjs \
+  --target /home/workbench/fusheng-workbench \
+  --claude-binary /home/workbench/.local/bin/claude \
+  --password-stdin --start < /secure/workbench-password.txt
+```
+
+口令要求 12–1024 个字符，磁盘只保存 scrypt 哈希。首次部署也可省略 `--password-stdin`，然后执行部署输出中的 `set-password` 命令，由用户交互设置。`--start` 是前台运行，用 Ctrl-C 停止；长期运行用下方 systemd 用户服务。外部 HTTPS 地址通过首次部署的 `--origin https://workbench.example.com` 指定；反向代理依照本指南的 HTTPS 部分配置。
+
+| 参数 | 行为 |
+| --- | --- |
+| `--target /绝对路径` | 必填，只接受独立的新目录或本脚本管理的已有目录，不接管其他非空目录；路径不能经过符号链接 |
+| `--port 17880` | 新部署端口，范围 1024–65535 |
+| `--origin https://域名` | 浏览器的完整来源，不带路径和结尾 `/`；HTTP 只允许本机来源 |
+| `--claude-binary /路径/claude` | 官方 CLI 的路径，默认从运行用户的 `PATH` 查找；systemd 推荐绝对路径 |
+| `--password-stdin` | 仅首次写入用户提供的口令；已有口令时拒绝覆盖 |
+| `--start` | 部署完成后在前台启动；不注册后台服务 |
+
+安装结果：
+
+```text
+/home/workbench/fusheng-workbench/
+├── deployment.json       # 本工具的管理标识
+├── workbench.env         # 配置；升级时完整保留
+├── start.sh              # 使用部署配置的启动入口
+├── workbench.service     # systemd 用户服务草稿，不会自动安装
+├── current -> releases/版本/
+├── releases/             # 独立构建的程序；旧版本保留用于回退
+└── data/                 # 口令哈希、会话、工作区及插件数据；升级不覆盖
+```
+
+**检查与验收**：
+
+```bash
+node /home/workbench/fusheng-workbench/current/scripts/doctor.mjs \
+  --target /home/workbench/fusheng-workbench --json
+
+# 服务启动后再验证 HTTP 和未登录 API 的鉴权边界
+node /home/workbench/fusheng-workbench/current/scripts/doctor.mjs \
+  --target /home/workbench/fusheng-workbench --health --json
+```
+
+`doctor` 检查 Node、Python PTY、依赖文件、编辑器产物、配置、目录权限、口令哈希、官方 CLI 和当前账号登录状态。`--health` 额外检查本机 `/healthz` 与 API 未登录拒绝行为；存在失败项时退出码为 1。它只读检查，不修复或覆盖配置。`--skip-claude` 供 CI 或尚未登录的本地冒烟检查使用，输出明确标记跳过，**不能用来证明 Claude 任务已可运行**。健康检查也不能代替一次用户授权的真实对话及每个可选插件的独立验收。
+
+**Linux 长期运行**：以专用普通用户执行，确认生成的 service 中 Node 的绝对路径仍有效，再安装到该用户的 systemd：
+
+```bash
+install -Dm600 /home/workbench/fusheng-workbench/workbench.service \
+  "$HOME/.config/systemd/user/fusheng-kelaude-workbench.service"
+systemctl --user daemon-reload
+systemctl --user enable --now fusheng-kelaude-workbench
+systemctl --user status fusheng-kelaude-workbench
+```
+
+如需退出 SSH 后持续运行并随系统开机，管理员可按需执行 `loginctl enable-linger workbench`。没有 systemd 的 macOS 可用 `start.sh` 前台运行；自动部署不注册 launchd。Node 通过 nvm 等路径安装时，升级 Node 后需审查启动器和 service 中保存的绝对路径。
+
+**重复部署与升级**：先确认没有正在执行的任务并备份 `data/`。更新源码后重新执行同一条 `deploy --target ...`，已有部署不要再传 `--password-stdin`。构建成功后原子切换 `current`；构建失败保留原活动版本。运行中的进程继续使用旧发布目录；部署不会自动重启它，确认后运行 `systemctl --user restart fusheng-kelaude-workbench` 并重新检查。已有配置、口令、启动脚本和 service 都不被覆盖；修改来源或端口需明确编辑 `workbench.env`。旧发布目录不会自动清理。并行部署会因 `.deploy.lock` 被拒绝；仅在确认没有部署进程后处理遗留锁。
+
+**回退**：先停止服务，记录当前 `readlink /home/workbench/fusheng-workbench/current`，将 `current` 链接切换到 `releases/` 内已经验收的旧版本，再启动并检查。不要删除或重建 `data/`。若未来升级包含数据迁移，先按该版本说明判断旧程序是否兼容，必要时恢复事先备份。
+
+## 手工安装与反向代理
+
 本文以 **Debian 12 / Ubuntu 22.04 及以上**为例，把工作台部署成一个长期运行的 systemd 服务，并通过 Nginx 提供 HTTPS 访问。其他发行版思路相同，命令按需调整。
 
 > [!IMPORTANT]
@@ -63,7 +144,7 @@ exit
 ```
 
 > [!NOTE]
-> 只登录**你自己的**账号。本项目是单账号版本，不支持、也不应被用于共享账号或在多个账号之间切换。
+> 默认底座使用当前服务账号的 Claude 登录状态。需要多账号或断点恢复时，按 [插件文档](PLUGINS.md) 单独配置与启用相应可选插件；部署脚本不会启用它们。
 
 ## 4. 安装工作台
 
@@ -72,7 +153,7 @@ exit
 ```bash
 sudo mkdir -p /opt/cloud-ops-workbench
 sudo chown "$USER": /opt/cloud-ops-workbench
-git clone https://github.com/qiuxinyuan321/cloud-ops-workbench.git /opt/cloud-ops-workbench
+git clone https://github.com/qiuxinyuan321/fusheng-kelaude-workbench.git /opt/cloud-ops-workbench
 cd /opt/cloud-ops-workbench
 npm ci
 npm run build    # 打包 Monaco 编辑器；不打包时编辑器会退化为纯文本框，其余功能不受影响

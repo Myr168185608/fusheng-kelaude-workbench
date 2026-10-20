@@ -109,6 +109,11 @@ export function createPluginHost(ctx) {
   function throttle(entry, key, ms) { const now = Date.now(); if (now - (entry.last[key] || 0) < ms) fail('操作过于频繁，请稍后再试。', 'rate'); entry.last[key] = now; }
 
   const METHODS = {
+    'backend.call': { permission: 'backend', async run(frame, params) {
+      if (typeof params?.method !== 'string') fail('需要插件方法名。');
+      try { return await ctx.api(`/api/plugins/${encodeURIComponent(frame.entry.plugin.id)}/backend`, { method: 'POST', body: { method: params.method, params: params.params ?? {} } }); }
+      catch (error) { fail(error.message || '插件后端调用失败。', 'backend'); }
+    } },
     'workbench.info': { run: () => ({ version: ctx.version(), sdk: 1, locale: 'zh-CN' }) },
     'theme.get': { run: () => themePayload() },
     'ui.toast': { permission: 'ui.toast', run(frame, params) {

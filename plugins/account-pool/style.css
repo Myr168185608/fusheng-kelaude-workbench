@@ -1,0 +1,24 @@
+html[data-surface="panel"] body { padding: 0; }
+.ap-panel { max-width: 1080px; margin: 0 auto; padding: 28px; display: grid; gap: 20px; }
+.ap-panel h1 { font-size: 28px; margin: 8px 0 12px; }
+.ap-panel h2 { font-size: 17px; margin: 0; }
+.ap-panel p { line-height: 1.7; margin: 10px 0 0; }
+.ap-content { display: grid; gap: 18px; }
+.ap-card { background: var(--wb-surface); border: 1px solid var(--wb-line); border-radius: 14px; padding: 20px; }
+.ap-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.ap-account-head, .ap-fields, .ap-actions, .ap-quota { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ap-account-head { justify-content: flex-start; }
+.ap-account-head h2, .ap-name { flex: 1; }
+.ap-fields { margin-top: 16px; align-items: end; }
+.ap-fields label { display: grid; gap: 7px; font-size: 12px; }
+.ap-input { background: var(--wb-bg); color: inherit; border: 1px solid var(--wb-line); border-radius: 8px; padding: 9px 11px; font: inherit; max-width: 100%; min-width: 0; }
+.ap-name { width: 140px; font-weight: 600; }
+.ap-actions { margin-top: 16px; }
+.ap-quota { gap: 30px; padding: 14px 0 0; }
+.ap-quota span { font-size: 12px; }
+.ap-quota strong { font-size: 20px; margin-left: 7px; }
+.ap-muted, .ap-panel header p { color: var(--wb-ink-3); font-size: 12px; }
+.ap-notice { padding: 12px 14px; border: 1px solid var(--wb-line); border-radius: 9px; color: var(--wb-ink); }
+.ap-command { display: block; width: 100%; box-sizing: border-box; margin-top: 14px; resize: vertical; padding: 12px; background: var(--wb-bg); color: inherit; border: 1px solid var(--wb-line); border-radius: 8px; font: 12px/1.7 ui-monospace, monospace; }
+[hidden] { display: none !important; }
+@media (max-width: 700px) { .ap-panel { padding: 18px; } .ap-grid { grid-template-columns: 1fr; } .ap-fields { align-items: stretch; flex-direction: column; } }
