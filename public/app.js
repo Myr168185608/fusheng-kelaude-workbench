@@ -1,6 +1,12 @@
+import { createThemeController, cssToHex, xtermTheme, monacoTheme } from './themes.js';
+import { createPluginHost } from './plugin-host.js';
+import { createWorkshop } from './workshop.js';
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const icons = {
+  puzzle: '<path d="M5.4 7.6h3.7a2.3 2.3 0 1 1 4.6 0h2.7v3.7a2.3 2.3 0 1 1 0 4.6v2.7h-11Z"/>', palette: '<path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.2 0 1.9-.8 1.9-1.8 0-.6-.3-1-.6-1.4-.3-.4-.6-.8-.6-1.4 0-1 .8-1.8 1.8-1.8H17a3.5 3.5 0 0 0 3.5-3.5c0-3.9-3.8-7.1-8.5-7.1Z"/><circle cx="7.7" cy="11.6" r="1.1"/><circle cx="10.4" cy="7.7" r="1.1"/><circle cx="15" cy="8.1" r="1.1"/>',
+  store: '<path d="M4 9.5 5.5 4h13L20 9.5a2.7 2.7 0 0 1-5.3.6 2.7 2.7 0 0 1-5.4 0A2.7 2.7 0 0 1 4 9.5Z"/><path d="M5.5 12.4V20h13v-7.6M10 20v-4.5h4V20"/>', grip: '<circle cx="9" cy="6" r=".9"/><circle cx="15" cy="6" r=".9"/><circle cx="9" cy="12" r=".9"/><circle cx="15" cy="12" r=".9"/><circle cx="9" cy="18" r=".9"/><circle cx="15" cy="18" r=".9"/>',
   command: '<path d="M9 7V5a2 2 0 1 0-2 2h10a2 2 0 1 0-2-2v14a2 2 0 1 0 2-2H7a2 2 0 1 0 2 2V7Z"/>', panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16"/>', brain: '<path d="M12 4a3 3 0 0 0-5-1 3 3 0 0 0-3 5 4 4 0 0 0 0 7 3 3 0 0 0 3 5 3 3 0 0 0 5-1V4Zm0 0a3 3 0 0 1 5-1 3 3 0 0 1 3 5 4 4 0 0 1 0 7 3 3 0 0 1-3 5 3 3 0 0 1-5-1M7 7l3 2M17 7l-3 2M7 16l3-2M17 16l-3-2"/>', paperclip: '<path d="m21 11-8 8a6 6 0 0 1-8-8l9-9a4 4 0 0 1 6 6l-9 9a2 2 0 0 1-3-3l8-8"/>', download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>', upload: '<path d="M12 16V4m-5 5 5-5 5 5M4 16v5h16v-5"/>', save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2ZM7 3v6h10V3M7 21v-8h10v8"/>', branch: '<circle cx="6" cy="4" r="2"/><circle cx="6" cy="20" r="2"/><circle cx="18" cy="6" r="2"/><path d="M6 6v12M18 8c0 5-12 2-12 8"/>', 'file-plus': '<path d="M14 2H6a2 2 0 0 0-2 2v16h16V8l-6-6Zm0 0v6h6M8 14h8M12 10v8"/>', 'folder-plus': '<path d="M3 7V5h7l2 2h9v13H3V7ZM12 10v7M8.5 13.5h7"/>', code: '<path d="m8 5-6 7 6 7M16 5l6 7-6 7M14 3l-4 18"/>', at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v6a2 2 0 0 0 4 0v-2a8 8 0 1 0-4 7"/>',
   plus: '<path d="M12 5v14M5 12h14"/>', search: '<circle cx="10.8" cy="10.8" r="6.6"/><path d="m16 16 4.2 4.2"/>',
   message: '<path d="M21 11.5a8.6 8.6 0 0 1-.9 3.8 8.8 8.8 0 0 1-7.9 4.9 8.6 8.6 0 0 1-3.8-.9L3 21l1.7-5.4a8.6 8.6 0 0 1-.9-3.8 8.8 8.8 0 0 1 4.9-7.9 8.6 8.6 0 0 1 3.8-.9h.5a8.8 8.8 0 0 1 8 8z"/>',
@@ -93,6 +99,7 @@ function showLogin(error = '') {
   state.authenticated = false; state.source?.close(); state.source = null; state.connected = false;
   ide.terminalSource?.close(); ide.terminalSource = null; ide.xterm?.dispose(); ide.xterm = null; ide.fit = null; ide.terminal = null;
   clearTimeout(state.refreshTimer); state.refreshTimer = null; ui.attention = null; document.title = '浮生氪劳德工作台'; setFavicon(null);
+  plugins.unload(); workshop.close(); switchView('chat');
   $('#boot').hidden = true; $('#app').hidden = true; $('#login-view').hidden = false;
   $('#login-error').textContent = error; $('#login-error').hidden = !error;
   $('#login-password').value = ''; $('#login-totp').value = '';
@@ -101,6 +108,7 @@ function showLogin(error = '') {
 async function showApp(auth) {
   state.authenticated = true; if (auth?.csrfToken) state.csrf = auth.csrfToken;
   await refreshBootstrap();
+  plugins.load().then(renderSafeBanner, error => toast(`插件暂时没有加载：${error.message}`, true));
   $('#boot').hidden = true; $('#login-view').hidden = true; $('#app').hidden = false;
   $('#login-password').value = ''; $('#login-totp').value = '';
   const storedId = storage.get('cloud-ops-workbench-active');
@@ -150,8 +158,8 @@ function connectEvents() {
   source.onmessage = event => {
     let data; try { data = JSON.parse(event.data); } catch { return; }
     if (data.type === 'session-patch') { onPatch(data); return; }
-    if (data.type === 'system') { state.system = data.system; renderServer(); }
-    if (data.type === 'usage') { ide.usage = data.usage; renderUsage(); renderNotices(); }
+    if (data.type === 'system') { state.system = data.system; renderServer(); plugins.system(); }
+    if (data.type === 'usage') { ide.usage = data.usage; renderUsage(); renderNotices(); plugins.usage(); }
     if (data.type === 'terminal-updated' || data.type === 'terminal' || data.type === 'terminals') refreshTerminals().catch(() => {});
     if (data.type === 'session-updated') { if (data.summary) applySummary(data.summary); scheduleSnapshot(data.sessionId, Boolean(data.summary)); }
   };
@@ -161,7 +169,7 @@ function applySummary(summary) {
   if (!summary?.id || !state.authenticated) return;
   const index = state.sessions.findIndex(s => s.id === summary.id); const previous = index >= 0 ? state.sessions[index] : null;
   if (index < 0) state.sessions.unshift(summary); else state.sessions[index] = { ...state.sessions[index], ...summary };
-  noteTransition(summary.id, previous?.status, summary.status, summary.title);
+  noteTransition(summary.id, previous?.status, summary.status, summary.title); noteActivity(summary.id, previous?.status, summary.status); plugins.session(summary);
   renderSessions(); updateControls();
 }
 function scheduleSnapshot(id, summarized = false) {
@@ -202,7 +210,7 @@ function acceptSession(session) {
   renderTitleMeta();
   renderSessions(); renderMessages(); if (state.view === 'monitor') renderMonitor(); renderTodos(); updateControls();
   $('#workspace-session-label').textContent = session.title || '当前会话';
-  if (previous) detectWorkspaceChanges(previous, session);
+  if (previous) detectWorkspaceChanges(previous, session); else plugins.activeChanged();
 }
 function preserveDraft() { if (state.draftLoaded) storage.set(activeDraftKey(), $('#message-input').value); }
 function loadDraft() { $('#message-input').value = storage.get(activeDraftKey()) || ''; state.draftLoaded = true; resizeInput(); updateControls(); }
@@ -212,7 +220,7 @@ function newSessionView() {
   syncAccountSelection(); renderUsage();
   $('#model-select').value = 'sonnet'; $('#mode-select').value = 'bypassPermissions';
   configureEffort('auto'); ide.directory = ''; ide.activeDocument = null; renderEditor(); renderAttachments(); renderTitleMeta(); if (ide.workspaceOpen) loadDirectory().catch(() => {});
-  renderSessions(); renderMessages(); renderMonitor(); renderTodos(); loadDraft(); closeSidebar(); switchView('chat');
+  renderSessions(); renderMessages(); renderMonitor(); renderTodos(); loadDraft(); closeSidebar(); switchView('chat'); plugins.activeChanged();
   $('#message-input').focus();
 }
 async function selectSession(id) {
@@ -795,7 +803,8 @@ function onPatch(frame) {
   // toolCalls mirrors lib/state.mjs (tools.length); the server sends metrics ops only after usage events.
   if (changed.tools) { session.metrics ||= {}; session.metrics.toolCalls = session.tools.length; detectWorkspaceChanges({ tools: before, status: session.status }, session); if (changed.todos) renderTodos(); updateControls(); }
   else if (running(session) && $('#active-run-label').textContent !== currentActivity(session)) updateControls();
-  if (changed.tools || changed.metrics) scheduleMonitor();
+  if (changed.tools || changed.metrics) { scheduleMonitor(); plugins.metrics(); }
+  if (changed.tools && before) { const known = new Set(before.map(t => t.id)); for (const tool of session.tools || []) if (!known.has(tool.id)) plugins.activity({ kind: 'tool', sessionId: session.id, current: true, tool: String(tool.name || tool.toolName || '').slice(0, 64) }); }
   scheduleRender();
 }
 function replayPatches(session) {
@@ -845,7 +854,7 @@ function jumpToTool(id) {
   switchView('chat'); if (!state.session) return;
   chatItems(state.session); if (!ui.entryGroups.has(`s:${id}`)) return;
   keepGroupOpen(`s:${id}`); ui.openSteps.add(id); ui.stuck = false; renderMessages();
-  requestAnimationFrame(() => { const el = (ui.items.get(`s:${id}`) || ui.items.get(ui.entryGroups.get(`s:${id}`)))?.el; if (!el?.isConnected) return; el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.animate?.([{ backgroundColor: '#fdf3d8' }, { backgroundColor: '#fdf3d8', offset: .3 }, { backgroundColor: 'transparent' }], { duration: 1800, easing: 'ease-out' }); });
+  requestAnimationFrame(() => { const el = (ui.items.get(`s:${id}`) || ui.items.get(ui.entryGroups.get(`s:${id}`)))?.el; if (!el?.isConnected) return; el.scrollIntoView({ block: 'center', behavior: 'smooth' }); const flash = cssToHex('var(--amber-soft)', '#fdf3d8'); el.animate?.([{ backgroundColor: flash }, { backgroundColor: flash, offset: .3 }, { backgroundColor: 'transparent' }], { duration: 1800, easing: 'ease-out' }); });
 }
 function emptyMarkup(symbol, title, description) { return `<div class="empty-card">${icon(symbol)}<strong>${escape(title)}</strong><p>${escape(description)}</p></div>`; }
 
@@ -878,17 +887,17 @@ function renderContext(metrics) {
     const max = limit || Math.max(...history.map(h => h.tokens), 1) * 1.15;
     const points = history.map((h, i) => [history.length === 1 ? 240 : i / (history.length - 1) * 480, 65 - Math.max(0, Math.min(h.tokens / max, 1)) * 58]);
     const line = points.map(p => p.join(',')).join(' ');
-    chart = `<svg class="context-trend" viewBox="0 0 480 72" preserveAspectRatio="none" role="img" aria-label="最近 ${history.length} 次上下文用量记录"><path class="grid" d="M0 15h480M0 40h480M0 65h480"/><polygon class="area" points="${points[0][0]},70 ${line} ${points.at(-1)[0]},70"/><polyline class="line" points="${line}"/>${points.length === 1 ? `<circle cx="${points[0][0]}" cy="${points[0][1]}" r="2.5" fill="#2f6a52" stroke="none"/>` : ''}</svg>`;
+    chart = `<svg class="context-trend" viewBox="0 0 480 72" preserveAspectRatio="none" role="img" aria-label="最近 ${history.length} 次上下文用量记录"><path class="grid" d="M0 15h480M0 40h480M0 65h480"/><polygon class="area" points="${points[0][0]},70 ${line} ${points.at(-1)[0]},70"/><polyline class="line" points="${line}"/>${points.length === 1 ? `<circle cx="${points[0][0]}" cy="${points[0][1]}" r="2.5" style="fill:var(--brand)" stroke="none"/>` : ''}</svg>`;
   }
   $('#context-content').innerHTML = `<div class="context-numbers"><strong>${compact(current)}</strong><span>/</span><span>${compact(limit)}</span>${limit !== null ? '<small>tokens</small>' : ''}<span class="context-percentage">${percent === null ? '未提供' : `${percent.toFixed(1)}%`}</span></div><div class="context-track"${percent !== null ? ` role="progressbar" aria-label="上下文使用率" aria-valuenow="${percent.toFixed(1)}" aria-valuemin="0" aria-valuemax="100"` : ' aria-hidden="true"'}><div class="context-fill${percent >= 80 ? ' warning' : ''}" style="width:${percent || 0}%"></div></div><div class="context-track-labels"><span>${current === null ? '等待模型提供上下文数据' : '当前上下文占用'}</span><span>${limit === null ? '容量未提供' : `容量 ${compact(limit)}`}</span></div><div class="context-trend-label"><span>上下文变化趋势</span><span>${history.length ? `最近 ${history.length} 次记录` : '尚无记录'}</span></div>${chart}`;
 }
 function renderTokens(values, total) {
-  const colors = ['#2f6a52', '#8fb59a', '#cfdcae', '#d6a86f'];
+  const colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)'];
   const labels = ['输入 Input', '缓存读取', '缓存写入', '输出 Output'];
   const knownTotal = values.reduce((sum, v) => sum + (finite(v) && v > 0 ? v : 0), 0);
   let offset = 0;
-  const circles = knownTotal > 0 ? values.map((v, i) => { if (!finite(v) || v <= 0) return ''; const length = v / knownTotal * 100; const circle = `<circle cx="60" cy="60" r="47" pathLength="100" stroke="${colors[i]}" stroke-dasharray="${length} ${100 - length}" stroke-dashoffset="${-offset}"/>`; offset += length; return circle; }).join('') : '';
-  $('#token-content').innerHTML = `<div class="token-breakdown"><div class="token-donut"><svg viewBox="0 0 120 120" role="img" aria-label="输入、缓存读取、缓存写入和输出 Token 构成"><circle cx="60" cy="60" r="47" stroke="#edf0e8"/>${circles}</svg><div class="donut-center"><strong>${compact(total)}</strong><span>TOTAL TOKENS</span></div></div><div class="token-legend">${values.map((v, i) => `<div class="legend-row"><span class="legend-dot" style="background:${colors[i]}"></span><span>${labels[i]}</span><strong title="${escape(formatNumber(v))}">${finite(v) ? compact(v) : '未提供'}${finite(v) && knownTotal > 0 ? `<small>${(v / knownTotal * 100).toFixed(0)}%</small>` : ''}</strong></div>`).join('')}</div></div>${total === null ? '<p class="token-empty-note">未收到的用量细项将保留为空。</p>' : ''}`;
+  const circles = knownTotal > 0 ? values.map((v, i) => { if (!finite(v) || v <= 0) return ''; const length = v / knownTotal * 100; const circle = `<circle cx="60" cy="60" r="47" pathLength="100" style="stroke:${colors[i]}" stroke-dasharray="${length} ${100 - length}" stroke-dashoffset="${-offset}"/>`; offset += length; return circle; }).join('') : '';
+  $('#token-content').innerHTML = `<div class="token-breakdown"><div class="token-donut"><svg viewBox="0 0 120 120" role="img" aria-label="输入、缓存读取、缓存写入和输出 Token 构成"><circle cx="60" cy="60" r="47" style="stroke:var(--track)"/>${circles}</svg><div class="donut-center"><strong>${compact(total)}</strong><span>TOTAL TOKENS</span></div></div><div class="token-legend">${values.map((v, i) => `<div class="legend-row"><span class="legend-dot" style="background:${colors[i]}"></span><span>${labels[i]}</span><strong title="${escape(formatNumber(v))}">${finite(v) ? compact(v) : '未提供'}${finite(v) && knownTotal > 0 ? `<small>${(v / knownTotal * 100).toFixed(0)}%</small>` : ''}</strong></div>`).join('')}</div></div>${total === null ? '<p class="token-empty-note">未收到的用量细项将保留为空。</p>' : ''}`;
 }
 function renderFiles(tools) {
   const files = new Map();
@@ -970,6 +979,13 @@ function updateDocumentTitle() {
   document.title = `${prefix}${state.session?.title || (state.activeId ? '会话' : '新会话')} · 浮生氪劳德工作台`;
   setFavicon(waiting ? '#d6a039' : attention?.kind === 'error' ? '#c4573f' : attention?.kind === 'done' ? '#4fae7c' : busy ? '#7fbf95' : null);
 }
+// Run milestones for plugins holding the activity permission: kinds and tool names only, never content.
+function noteActivity(id, before, after) {
+  if (before === after || (!before && after !== 'running')) return;
+  const wasActive = ['running', 'awaiting_approval', 'stopping'].includes(before);
+  const kind = after === 'running' ? 'start' : after === 'awaiting_approval' ? 'approval' : after === 'stopping' ? 'stop' : wasActive && after === 'idle' ? 'done' : wasActive && after === 'error' ? 'error' : null;
+  if (kind) plugins.activity({ kind, sessionId: id, current: id === state.activeId });
+}
 function noteTransition(id, before, after, title) {
   if (!before || before === after) return;
   const wasActive = ['running', 'awaiting_approval', 'stopping'].includes(before);
@@ -1025,7 +1041,7 @@ function updateRunClock() {
   $('#active-run-time').textContent = text; $('#run-pill-time').textContent = text;
 }
 function resizeInput() { const input = $('#message-input'); input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, innerWidth < 680 ? 180 : 240)}px`; }
-function switchView(view) { const changed = state.view !== view; state.view = view; $('#chat-view').hidden = view !== 'chat'; $('#monitor-view').hidden = view !== 'monitor'; $$('.view-tab').forEach(button => { const selected = button.dataset.tab === view; button.classList.toggle('active', selected); button.setAttribute('aria-selected', selected); }); if (view === 'monitor') renderMonitor(); if (changed && ide.workspaceOpen && matchMedia('(max-width: 980px)').matches) closeWorkspace(); }
+function switchView(view) { if (view?.startsWith('plugin:') && !plugins.hasView(view)) view = 'chat'; const changed = state.view !== view; state.view = view; $('#chat-view').hidden = view !== 'chat'; $('#monitor-view').hidden = view !== 'monitor'; $$('.view-tab').forEach(button => { const selected = button.dataset.tab === view; button.classList.toggle('active', selected); button.setAttribute('aria-selected', selected); }); plugins.setView(view); plugins.setMonitorVisible(view === 'monitor'); if (view === 'monitor') renderMonitor(); if (changed && ide.workspaceOpen && matchMedia('(max-width: 980px)').matches) closeWorkspace(); }
 function syncSidebarAccess() { const mobile = matchMedia('(max-width: 680px)').matches; const open = $('#sidebar').classList.contains('open'); $('#sidebar').inert = mobile && !open; $('#sidebar').setAttribute('aria-hidden', mobile && !open ? 'true' : 'false'); $('#mobile-menu').setAttribute('aria-expanded', String(open)); $('.main-shell').inert = mobile && open; }
 function closeSidebar() { $('#sidebar').classList.remove('open'); $('#sidebar-scrim').hidden = true; syncSidebarAccess(); }
 // Runs on every scroll event and streaming frame, so it only touches the DOM when something changed.
@@ -1114,7 +1130,7 @@ async function loadMonaco() {
   ide.monacoLoading = new Promise((resolve, reject) => { if (globalThis.monaco?.editor) return resolve(); const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = '/vendor/editor/monaco.css'; document.head.append(css); const script = document.createElement('script'); script.src = '/vendor/editor/monaco.js'; script.onload = resolve; script.onerror = () => reject(new Error('编辑器组件加载失败，已保留文本编辑模式。')); document.head.append(script); }).then(() => {
     if (!globalThis.monaco?.editor) throw new Error('编辑器组件未就绪，已保留文本编辑模式。');
     if (!monaco.languages.getLanguages().some(language => language.id === 'diff')) { monaco.languages.register({ id: 'diff', extensions: ['.diff', '.patch'] }); monaco.languages.setMonarchTokensProvider('diff', { tokenizer: { root: [[/^(diff --git|index |--- |\+\+\+ ).*$/, 'diff.meta'], [/^@@.*$/, 'diff.hunk'], [/^\+.*$/, 'diff.add'], [/^-.*$/, 'diff.del']] } }); }
-    monaco.editor.defineTheme('workbench', { base: 'vs', inherit: true, rules: [{ token: 'comment', foreground: '8a968c', fontStyle: 'italic' }, { token: 'diff.add', foreground: '1f6b3d', background: 'e9f6ec' }, { token: 'diff.del', foreground: '94382c' }, { token: 'diff.hunk', foreground: '2e6482', fontStyle: 'bold' }, { token: 'diff.meta', foreground: '858f88' }], colors: { 'editor.background': '#fffefb', 'editor.lineHighlightBackground': '#f2f6f0', 'editor.lineHighlightBorder': '#00000000', 'editorLineNumber.foreground': '#b5bdb3', 'editorLineNumber.activeForeground': '#2f6a52', 'editor.selectionBackground': '#cfe2d5', 'editor.inactiveSelectionBackground': '#e3ece5', 'editorCursor.foreground': '#2f6a52', 'editorIndentGuide.background1': '#eef0ea', 'editorGutter.background': '#fffefb' } });
+    monaco.editor.defineTheme('workbench', monacoTheme(themes.current));
     ide.editor = monaco.editor.create($('#monaco-editor'), { model: null, theme: 'workbench', fontSize: 13, lineHeight: 21, fontFamily: '"SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace', automaticLayout: true, minimap: { enabled: false }, scrollBeyondLastLine: false, wordWrap: 'on', padding: { top: 14, bottom: 14 }, renderLineHighlight: 'line', roundedSelection: true, tabSize: 2, smoothScrolling: true, cursorSmoothCaretAnimation: 'on', scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 } });
     ide.editor.onDidChangeModelContent(() => markDocumentChanged(ide.editor.getValue()));
     ide.editor.onDidChangeCursorPosition(event => { $('#editor-position').textContent = `行 ${event.position.lineNumber}，列 ${event.position.column}`; });
@@ -1238,7 +1254,7 @@ function renderTerminal() {
   $$('[data-start-terminal]', $('#terminal-notice')).forEach(button => { button.disabled = ide.terminalStarting || running(state.session) || Boolean(loginInProgress()) || Boolean(state.sessions.find(s => running(s))) || (button.dataset.startTerminal === 'claude' && !accountReady()); });
 }
 async function openTerminal(kind = ide.terminalKind) { $('#terminal-panel').hidden = false; $('#terminal-toggle').classList.add('active'); ide.terminalKind = kind; await refreshTerminals(); renderTerminal(); if (ide.terminal) attachTerminal(); }
-function setupXterm() { if (ide.xterm) return; if (!globalThis.Terminal) throw new Error('终端组件尚未加载，请刷新页面。'); ide.xterm = new Terminal({ cursorBlink: true, fontSize: 13, lineHeight: 1.3, fontFamily: '"SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace', scrollback: 8000, convertEol: false, allowProposedApi: false, theme: { background: '#14231f', foreground: '#dbe7d6', cursor: '#a9d4b4', selectionBackground: '#8db27844', black: '#24362f', red: '#e0907d', green: '#9fd1a4', yellow: '#e2c98e', blue: '#8fb6c4', magenta: '#c4a8c6', cyan: '#94c9b6', white: '#e6eee2', brightBlack: '#5d7568' } }); if (globalThis.FitAddon?.FitAddon) { ide.fit = new FitAddon.FitAddon(); ide.xterm.loadAddon(ide.fit); } ide.xterm.open($('#terminal-host')); ide.xterm.onData(data => { if (ide.terminal?.status !== 'running') return; ide.inputBuffer += data; if (!ide.inputTimer) ide.inputTimer = setTimeout(flushTerminalInput, 20); }); }
+function setupXterm() { if (ide.xterm) return; if (!globalThis.Terminal) throw new Error('终端组件尚未加载，请刷新页面。'); ide.xterm = new Terminal({ cursorBlink: true, fontSize: 13, lineHeight: 1.3, fontFamily: '"SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace', scrollback: 8000, convertEol: false, allowProposedApi: false, theme: xtermTheme(themes.current) }); if (globalThis.FitAddon?.FitAddon) { ide.fit = new FitAddon.FitAddon(); ide.xterm.loadAddon(ide.fit); } ide.xterm.open($('#terminal-host')); ide.xterm.onData(data => { if (ide.terminal?.status !== 'running') return; ide.inputBuffer += data; if (!ide.inputTimer) ide.inputTimer = setTimeout(flushTerminalInput, 20); }); }
 async function fitTerminal() { if (!ide.xterm || $('#terminal-panel').hidden) return; try { ide.fit?.fit(); if (ide.terminal?.status === 'running') await api(`/api/terminals/${encodeURIComponent(ide.terminal.id)}/resize`, { method: 'POST', body: { cols: Math.max(40, Math.min(240, ide.xterm.cols || 100)), rows: Math.max(10, Math.min(100, ide.xterm.rows || 24)) } }); } catch {} }
 function attachTerminal() { if (!ide.terminal) return; try { setupXterm(); } catch (error) { toast(error.message, true); return; } renderTerminal(); if (ide.terminalSource && ide.terminalSource.terminalId === ide.terminal.id) { fitTerminal(); return; } ide.terminalSource?.close(); ide.xterm.reset(); const terminalId = ide.terminal.id; const source = new EventSource(`/api/terminals/${encodeURIComponent(terminalId)}/events`); source.terminalId = terminalId; ide.terminalSource = source; source.onopen = () => { $('#terminal-status').textContent = `${ide.terminal?.kind === 'claude' ? 'Claude' : 'Shell'} · 已连接`; fitTerminal(); }; source.onmessage = event => { let data; try { data = JSON.parse(event.data); } catch { return; } if (data.type === 'output') ide.xterm?.write(data.data || ''); if (data.type === 'exit') { ide.terminalStopping = false; ide.terminal = { ...ide.terminal, status: 'exited', exitCode: data.code }; source.close(); ide.terminalSource = null; renderTerminal(); updateControls(); scheduleWorkspaceSync(null); if (state.activeId) refreshSession().catch(() => {}); } }; source.onerror = () => { $('#terminal-status').textContent = '连接中断，正在重连'; }; fitTerminal(); }
 async function flushTerminalInput() { ide.inputTimer = null; if (ide.inputPending || !ide.inputBuffer || ide.terminal?.status !== 'running') return; const data = ide.inputBuffer; ide.inputBuffer = ''; const id = ide.terminal.id; ide.inputPending = true; try { await api(`/api/terminals/${encodeURIComponent(id)}/input`, { method: 'POST', body: { data } }); } catch (error) { toast(`终端输入未确认送达：${error.message}。为避免重复执行，未自动重发。`, true); } finally { ide.inputPending = false; if (ide.inputBuffer) ide.inputTimer = setTimeout(flushTerminalInput, 20); } }
@@ -1248,7 +1264,7 @@ function closeTerminalPanel() { $('#terminal-panel').hidden = true; $('#terminal
 function toggleTerminalPanel() { return $('#terminal-panel').hidden ? openTerminal() : closeTerminalPanel(); }
 
 /* ---------- Command palette ---------- */
-const commandGroups = ['操作', '会话', '已打开的文件', '工作区文件', '原生命令'];
+const commandGroups = ['操作', '插件', '会话', '外观', '已打开的文件', '工作区文件', '原生命令'];
 function commandsList() {
   const inRun = running(state.session), doc = currentDocument();
   const setMode = mode => async () => { $('#mode-select').value = mode; if (state.activeId) await changeSession(state.activeId, { permissionMode: mode }); updateControls(); };
@@ -1268,7 +1284,11 @@ function commandsList() {
     { id: 'notify', title: ui.notify ? '关闭桌面通知' : '开启桌面通知', subtitle: '任务完成或需要确认时在后台提醒', icon: 'bell', slash: '/notify', run: toggleNotifications },
     { id: 'export', title: '导出当前会话', subtitle: '下载 JSON 会话记录', icon: 'download', slash: '/export', run: exportSession },
     { id: 'upload', title: '上传附件', subtitle: '上传到当前工作区并在消息中引用', icon: 'upload', slash: '/attach', run: () => $('#attachment-input').click() },
+    { id: 'workshop', title: '打开创意工坊', subtitle: '发现、安装和管理插件与皮肤', icon: 'store', slash: '/workshop', run: () => workshop.open() },
+    { id: 'skins', title: '更换皮肤', subtitle: `当前：${themes.pref === 'auto' ? '跟随系统' : themes.current?.name || '默认'} · 输入「皮肤」可直接切换`, icon: 'palette', slash: '/skin', run: () => workshop.open('skins') },
   ].map(c => ({ ...c, group: '操作' }));
+  for (const command of plugins.commands()) list.push({ ...command, group: '插件' });
+  if (!safeMode) for (const theme of [{ id: 'auto', name: '跟随系统', description: '随系统深浅色在云杉与墨夜之间切换' }, ...themes.list()]) list.push({ id: `theme:${theme.id}`, group: '外观', title: `皮肤：${theme.name}`, subtitle: `${(themes.pref === 'auto' ? theme.id === 'auto' : theme.id === themes.pref) ? '当前 · ' : ''}${theme.description || ''}`, icon: 'palette', run: () => setTheme(theme.id) });
   for (const s of state.sessions.filter(s => !s.archived && s.id !== state.activeId).slice(0, 30)) list.push({ id: `session:${s.id}`, group: '会话', title: s.title || '未命名会话', subtitle: `${statusText[s.status] || '就绪'} · ${relativeTime(s.updatedAt || s.createdAt)}`, icon: 'message', run: () => selectSession(s.id) });
   for (const [key, d] of ide.documents) if (d.sessionId === state.activeId) list.push({ id: `doc:${key}`, group: '已打开的文件', title: d.path.split('/').at(-1), subtitle: d.path, icon: 'file', run: async () => { if (!ide.workspaceOpen) await openWorkspace(); ide.activeDocument = key; ui.activeDocBySession.set(state.activeId, key); renderEditor(); } });
   for (const entry of ide.entries) if (!isDirectory(entry) && !ide.documents.has(documentKey(state.activeId, entry.path))) list.push({ id: `file:${entry.path}`, group: '工作区文件', title: entry.name, subtitle: entry.path, icon: 'file', run: () => openPath(entry.path) });
@@ -1282,13 +1302,39 @@ function renderCommands() {
   const query = $('#command-query').value.trim().toLowerCase();
   const rank = c => !query ? 0 : c.slash === query || c.title.toLowerCase() === query ? 0 : c.slash?.startsWith(query) || c.title.toLowerCase().startsWith(query) ? 1 : 2;
   ide.commands = commandsList().filter(c => `${c.title} ${c.subtitle} ${c.slash || ''}`.toLowerCase().includes(query)).sort((a, b) => rank(a) - rank(b) || (query ? 0 : commandGroups.indexOf(a.group) - commandGroups.indexOf(b.group)));
-  if (!query) ide.commands = ide.commands.filter((c, i, all) => c.group !== '原生命令' || all.slice(0, i).filter(x => x.group === '原生命令').length < 6);
+  if (!query) ide.commands = ide.commands.filter((c, i, all) => c.group !== '外观' && (c.group !== '原生命令' || all.slice(0, i).filter(x => x.group === '原生命令').length < 6));
   ide.commandIndex = Math.min(ide.commandIndex, Math.max(0, ide.commands.length - 1)); let group = null;
   $('#command-results').innerHTML = ide.commands.length ? ide.commands.map((command, index) => { const header = !query && command.group !== group ? `<div class="command-group">${escape(command.group)}</div>` : ''; group = command.group; return `${header}<button class="command-result${index === ide.commandIndex ? ' selected' : ''}" data-command-index="${index}"><span>${icon(command.icon)}</span><span><strong>${escape(command.title)}</strong><small>${escape(command.subtitle)}</small></span>${command.slash ? `<kbd>${escape(command.slash)}</kbd>` : ''}</button>`; }).join('') : '<div class="explorer-empty">没有找到匹配的命令。</div>';
 }
 function openCommands() { $('#command-query').value = ''; ide.commandIndex = 0; renderCommands(); $('#command-dialog').showModal(); $('#command-query').focus(); }
 async function executeCommand(command) { if (!command) return; if ($('#command-dialog').open) $('#command-dialog').close(); $('#slash-menu').hidden = true; try { await command.run(); } catch (error) { toast(error.message, true); } }
 function renderSlashMenu() { const value = $('#message-input').value; if (!/^\/[^\s]*$/.test(value)) { $('#slash-menu').hidden = true; return; } const commands = commandsList().filter(c => c.slash?.startsWith(value)); $('#slash-menu').hidden = !commands.length; $('#slash-menu').innerHTML = commands.slice(0, 10).map(command => `<button data-slash-command="${escape(command.id)}"><strong>${escape(command.slash)}</strong><span>${escape(command.title === command.slash ? command.subtitle : command.title)}</span>${command.native ? '<small>原生终端</small>' : ''}</button>`).join(''); }
+
+/* ---------- Skins, plugins and the workshop ---------- */
+// ?safe opens the workbench with the default skin and no plugins, to recover from a broken one.
+const safeMode = new URLSearchParams(location.search).has('safe');
+const themes = createThemeController({ safe: safeMode, onChange: onThemeChange });
+const plugins = createPluginHost({
+  api, icon, safe: safeMode, toast: message => toast(message),
+  theme: () => themes.current, usage: () => ide.usage, system: () => state.system, activeSession: () => state.session,
+  version: () => state.config.version || '', currentView: () => state.view, switchView,
+  openSession: id => { if (!state.sessions.some(s => s.id === id && !s.archived)) return false; switchView('chat'); selectSession(id); return true; },
+  insertText: text => { switchView('chat'); insertIntoComposer(text); },
+  onCatalog: data => { themes.setExtra(data.themes); workshop.refresh(); renderSafeBanner(); },
+  onChange: () => { if ($('#command-dialog').open) renderCommands(); },
+});
+const workshop = createWorkshop({ api, toast, icon, escape, safe: safeMode, themes, plugins, setTheme, version: () => state.config.version || '' });
+function setTheme(id) {
+  const theme = themes.set(id);
+  if (!theme) toast(safeMode ? '安全模式下固定使用默认皮肤。' : '这个皮肤暂时不可用。', true);
+  return theme;
+}
+function onThemeChange(theme) {
+  if (ide.xterm) ide.xterm.options.theme = xtermTheme(theme);
+  if (globalThis.monaco?.editor && ide.editor) { monaco.editor.defineTheme('workbench', monacoTheme(theme)); monaco.editor.setTheme('workbench'); }
+  plugins.themeChanged(); workshop.themeChanged();
+}
+function renderSafeBanner() { $('#safe-banner').hidden = !(safeMode || plugins.data?.safeMode); $('#safe-banner-text').textContent = safeMode ? '安全模式：本次没有加载插件和自定义皮肤。' : '安全模式：服务器设置了 WORKBENCH_SAFE_MODE=1，插件暂停运行。'; $('#safe-exit').hidden = !safeMode; }
 
 /* ---------- Event wiring ---------- */
 $('#login-form').addEventListener('submit', async event => {
@@ -1303,7 +1349,7 @@ $('#login-form').addEventListener('submit', async event => {
   } finally { $('#login-submit').disabled = false; }
 });
 $('#toggle-password').addEventListener('click', () => { const input = $('#login-password'); const show = input.type === 'password'; input.type = show ? 'text' : 'password'; $('#toggle-password').innerHTML = icon(show ? 'eye-off' : 'eye'); $('#toggle-password').setAttribute('aria-label', show ? '隐藏口令' : '显示口令'); });
-$('#logout').addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST', body: {} }); try { Object.keys(localStorage).filter(key => key.startsWith('cloud-ops-workbench-draft:') || key === 'cloud-ops-workbench-active').forEach(key => localStorage.removeItem(key)); } catch {} state.draftLoaded = false; state.pendingSend = null; $('#message-input').value = ''; showLogin(); } catch (error) { toast(error.message, true); } });
+$('#logout').addEventListener('click', async () => { try { await plugins.flush(); await api('/api/logout', { method: 'POST', body: {} }); try { Object.keys(localStorage).filter(key => key.startsWith('cloud-ops-workbench-draft:') || key === 'cloud-ops-workbench-active').forEach(key => localStorage.removeItem(key)); } catch {} state.draftLoaded = false; state.pendingSend = null; $('#message-input').value = ''; showLogin(); } catch (error) { toast(error.message, true); } });
 $('#new-session').addEventListener('click', newSessionView);
 $('#session-search').addEventListener('input', renderSessions);
 $('#toggle-archived').addEventListener('click', () => { state.archived = !state.archived; renderSessions(); });
@@ -1318,7 +1364,7 @@ $('#rename-current').addEventListener('click', () => openRename(state.activeId))
 $('#rename-cancel').addEventListener('click', () => $('#rename-dialog').close());
 $('#rename-dialog').addEventListener('click', event => { if (event.target === $('#rename-dialog')) { const box = event.target.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) event.target.close(); } });
 $('#rename-form').addEventListener('submit', async event => { event.preventDefault(); const title = $('#rename-input').value.trim(); if (!title) return; const button = $('#rename-form button[type="submit"]'); button.disabled = true; try { await changeSession(state.renameId, { title }); $('#rename-dialog').close(); } catch (error) { toast(error.message, true); } finally { button.disabled = false; } });
-$$('.view-tab').forEach(button => button.addEventListener('click', () => switchView(button.dataset.tab)));
+$('.view-tabs').addEventListener('click', event => { const button = event.target.closest('.view-tab'); if (button) switchView(button.dataset.tab); });
 $('#mobile-menu').addEventListener('click', () => { $('#sidebar').classList.add('open'); $('#sidebar-scrim').hidden = false; syncSidebarAccess(); $('#new-session').focus(); });
 $('#sidebar-scrim').addEventListener('click', closeSidebar);
 $('#run-pill').addEventListener('click', scrollToLatest);
@@ -1474,6 +1520,8 @@ $('#shell-terminal').addEventListener('click', () => { if (ide.terminal?.status 
 $('#claude-terminal').addEventListener('click', () => { if (ide.terminal?.status === 'running' && ide.terminal.kind !== 'claude') toast('请先结束当前 Shell 进程，再打开原生 Claude。'); else if (ide.terminal?.status !== 'running') startTerminal('claude'); else { ide.terminalKind = 'claude'; renderTerminal(); } });
 $('#terminal-resize-handle').addEventListener('pointerdown', event => { const startY = event.clientY; const height = $('#terminal-panel').getBoundingClientRect().height; event.target.setPointerCapture(event.pointerId); const move = e => { $('#terminal-panel').style.height = `${Math.min(innerHeight * .75, Math.max(170, height + startY - e.clientY))}px`; ide.fit?.fit(); }; const up = () => { event.target.removeEventListener('pointermove', move); event.target.removeEventListener('pointerup', up); fitTerminal(); }; event.target.addEventListener('pointermove', move); event.target.addEventListener('pointerup', up); });
 for (const id of ['#command-button', '#status-command-button']) $(id).addEventListener('click', openCommands);
+$('#workshop-button').addEventListener('click', () => workshop.open());
+$('#safe-exit').addEventListener('click', () => { const url = new URL(location.href); url.searchParams.delete('safe'); location.href = url.href; });
 $('#command-query').addEventListener('input', () => { ide.commandIndex = 0; renderCommands(); });
 $('#command-query').addEventListener('keydown', event => { if (['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); ide.commandIndex = Math.max(0, Math.min(ide.commands.length - 1, ide.commandIndex + (event.key === 'ArrowDown' ? 1 : -1))); renderCommands(); $('.command-result.selected')?.scrollIntoView({ block: 'nearest' }); } else if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); executeCommand(ide.commands[ide.commandIndex]); } });
 $('#command-results').addEventListener('click', event => { const button = event.target.closest('[data-command-index]'); if (button) executeCommand(ide.commands[Number(button.dataset.commandIndex)]); });
@@ -1482,6 +1530,7 @@ $('#slash-button').addEventListener('click', () => { $('#message-input').value =
 $('#slash-menu').addEventListener('click', event => { const button = event.target.closest('[data-slash-command]'); if (button) { $('#message-input').value = ''; preserveDraft(); resizeInput(); updateControls(); executeCommand(commandsList().find(c => c.id === button.dataset.slashCommand)); } });
 window.addEventListener('beforeunload', event => { if ([...ide.documents.values()].some(doc => doc.dirty)) { event.preventDefault(); event.returnValue = ''; } });
 
+themes.apply(); renderSafeBanner();
 renderMonitor(); renderUsage(); syncSidebarAccess();
 try {
   const auth = await api('/api/auth');

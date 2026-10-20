@@ -1,0 +1,186 @@
+{
+  "schema": 1,
+  "name": "浮生氪劳德工作台 · 创意工坊",
+  "updatedAt": "2026-10-20T08:09:31.971Z",
+  "items": [
+    {
+      "id": "ops-pulse",
+      "type": "plugin",
+      "name": "运维脉搏",
+      "version": "1.0.0",
+      "description": "在监控页放一张运维小卡：CPU 与内存的实时脉搏、负载与磁盘、多时区时钟，以及一键填入输入框的常用只读巡检指令。",
+      "author": "浮生氪劳德工作台",
+      "tags": [
+        "运维",
+        "监控",
+        "效率"
+      ],
+      "permissions": [
+        "composer.insert",
+        "storage",
+        "system.read"
+      ],
+      "icon": "💓",
+      "accent": "#d9822b",
+      "surfaces": [
+        "widget"
+      ],
+      "official": true,
+      "bundled": true,
+      "minVersion": "1.1.0"
+    },
+    {
+      "id": "usage-stats",
+      "type": "plugin",
+      "name": "用量统计",
+      "version": "1.0.0",
+      "description": "把官方额度、Token 与费用估算汇总成一张看板：额度进度、每日走势、模型分布和消耗最多的会话，并在状态栏显示今日费用。",
+      "author": "浮生氪劳德工作台",
+      "tags": [
+        "统计",
+        "额度",
+        "看板"
+      ],
+      "permissions": [
+        "sessions.read",
+        "storage",
+        "ui.statusbar",
+        "usage.read"
+      ],
+      "icon": "📊",
+      "accent": "#2f6a52",
+      "surfaces": [
+        "panel",
+        "widget",
+        "background"
+      ],
+      "official": true,
+      "bundled": true,
+      "minVersion": "1.1.0"
+    },
+    {
+      "id": "xiaoyun-pet",
+      "type": "plugin",
+      "name": "小云",
+      "version": "1.0.0",
+      "description": "住在工作台角落的一朵小云：会跟着任务思考、干活、等你确认、庆祝完成，额度紧张时提醒你歇一歇。点点它，它会越来越亲近你。",
+      "author": "浮生氪劳德工作台",
+      "tags": [
+        "宠物",
+        "陪伴",
+        "趣味"
+      ],
+      "permissions": [
+        "activity",
+        "storage",
+        "usage.read"
+      ],
+      "icon": "☁️",
+      "accent": "#5b9be6",
+      "surfaces": [
+        "overlay"
+      ],
+      "official": true,
+      "bundled": true,
+      "minVersion": "1.1.0"
+    },
+    {
+      "id": "focus-timer",
+      "type": "plugin",
+      "name": "番茄专注",
+      "version": "1.0.0",
+      "description": "番茄工作法计时器：专注 25 分钟、休息 5 分钟，状态栏实时倒计时，到点提醒；面板里记录每天完成的番茄数。",
+      "author": "浮生氪劳德工作台",
+      "tags": [
+        "效率",
+        "专注",
+        "番茄钟"
+      ],
+      "permissions": [
+        "storage",
+        "ui.statusbar",
+        "ui.toast"
+      ],
+      "icon": "🍅",
+      "accent": "#d1493f",
+      "surfaces": [
+        "panel",
+        "background"
+      ],
+      "official": true,
+      "bundled": false,
+      "minVersion": "1.1.0",
+      "path": "packages/focus-timer-1.0.0.json",
+      "sha256": "72842ab9194f3145336393d93c59f358926fd4d157a3f6481a841aa46215f679",
+      "size": 22306
+    },
+    {
+      "id": "amber",
+      "type": "theme",
+      "name": "琥珀",
+      "version": "1.0.0",
+      "description": "深色 · 灯下的琥珀与焦糖色，暖而不刺眼，适合深夜值守。",
+      "author": "浮生氪劳德工作台",
+      "tags": [
+        "深色",
+        "暖色",
+        "护眼"
+      ],
+      "permissions": [],
+      "icon": "🕯️",
+      "accent": "#e39b45",
+      "surfaces": [],
+      "official": true,
+      "bundled": false,
+      "minVersion": "1.1.0",
+      "preview": {
+        "scheme": "dark",
+        "swatches": [
+          "#14100b",
+          "#e8a24e",
+          "#9c6a2c",
+          "#d9a640",
+          "#f2806f",
+          "#f3e9da"
+        ]
+      },
+      "path": "packages/amber-1.0.0.json",
+      "sha256": "e0dc6cf360187c4cb6dccd0155a84f2f60f0817fca457e71bb8b0fa4fb77b0f8",
+      "size": 2625
+    },
+    {
+      "id": "frost",
+      "type": "theme",
+      "name": "霜",
+      "version": "1.0.0",
+      "description": "浅色 · 清晨窗上的薄霜，冰蓝配雾灰，冷静通透。",
+      "author": "浮生氪劳德工作台",
+      "tags": [
+        "浅色",
+        "冷色",
+        "简洁"
+      ],
+      "permissions": [],
+      "icon": "❄️",
+      "accent": "#2d6cb3",
+      "surfaces": [],
+      "official": true,
+      "bundled": false,
+      "minVersion": "1.1.0",
+      "preview": {
+        "scheme": "light",
+        "swatches": [
+          "#eef3f8",
+          "#2d6cb3",
+          "#86afe0",
+          "#c48a2c",
+          "#b2433a",
+          "#152231"
+        ]
+      },
+      "path": "packages/frost-1.0.0.json",
+      "sha256": "67661fe0a71cc56367a58f4d862b71808303bf2f294e74155319c2e1e86c9198",
+      "size": 2553
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+# Workshop packages are verified by sha256 after download: keep their bytes exactly as built.
+workshop/packages/*.json -text
+workshop/registry.json text eol=lf
+workshop/src/** text eol=lf

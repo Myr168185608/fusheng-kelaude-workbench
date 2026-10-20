@@ -24,5 +24,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Check that the workshop catalog matches workshop/src
+        run: npm run workshop:build -- --check
       - name: Build the Monaco editor bundle
         run: npm run build

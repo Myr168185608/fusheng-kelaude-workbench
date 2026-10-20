@@ -1,0 +1,40 @@
+{
+  "id": "amber",
+  "type": "theme",
+  "name": "琥珀",
+  "version": "1.0.0",
+  "description": "深色 · 灯下的琥珀与焦糖色，暖而不刺眼，适合深夜值守。",
+  "author": "浮生氪劳德工作台",
+  "license": "MIT",
+  "engines": { "workbench": ">=1.1.0" },
+  "icon": "🕯️",
+  "accent": "#e39b45",
+  "tags": ["深色", "暖色", "护眼"],
+  "theme": {
+    "scheme": "dark",
+    "tokens": {
+      "bg": "#14100b", "bg-2": "#0f0c08", "surface": "#1c1711", "surface-2": "#18140e", "sunken": "#110d09",
+      "line": "#2d251b", "line-2": "#3b3124",
+      "ink": "#f3e9da", "ink-2": "#d8cab5", "ink-3": "#ad9d86", "ink-4": "#837560", "ink-5": "#5f5444",
+      "brand": "#e8a24e", "brand-2": "#c7822f", "brand-3": "#f8d29d", "brand-4": "#9c6a2c",
+      "brand-soft": "#33240f", "brand-tint": "#251b0f", "brand-line": "#5a3f1b", "on-brand": "#1a0f02",
+      "amber": "#efc561", "amber-2": "#d9a640", "amber-soft": "#2c2412", "amber-line": "#50421d",
+      "red": "#f2806f", "red-soft": "#331815", "red-line": "#5f2d25",
+      "blue": "#8fbad8", "blue-soft": "#16212a", "ok": "#8fcb8b",
+      "side-0": "#080604", "side": "#0e0b07", "side-2": "#15110b", "side-3": "#201a11", "side-line": "#060403",
+      "side-ink": "#efe3cf", "side-ink-2": "#b4a38b", "side-ink-3": "#7b6c56",
+      "side-accent": "#f2bc6c", "side-ok": "#8fcb8b", "side-warn": "#efc561", "side-bad": "#f2806f",
+      "code-bg": "#0e0b07", "code-ink": "#ebddc6", "code-line": "#272016", "code-accent": "#f2bc6c", "code-muted": "#91806a",
+      "term-bg": "#0b0906", "term-bar": "#13100a", "term-ink": "#ecdcc2", "term-ink-2": "#cebda1", "term-ink-3": "#8b7b63",
+      "term-accent": "#f2bc6c", "term-bad": "#f2806f", "term-warn": "#efc561",
+      "shadow": "#000000", "modified": "#f08a5d",
+      "grad-ok": "linear-gradient(90deg,#9c6a2c,#e8a24e)"
+    },
+    "terminal": {
+      "background": "#0b0906", "foreground": "#ecdcc2", "cursor": "#f2bc6c", "selectionBackground": "#f2bc6c40",
+      "black": "#231c13", "red": "#f2806f", "green": "#a9cf8a", "yellow": "#efc561", "blue": "#8fbad8",
+      "magenta": "#d8a5c2", "cyan": "#8fd0c1", "white": "#f3e9da", "brightBlack": "#6e604b"
+    },
+    "editor": { "keyword": "#f2bc6c", "string": "#a9cf8a", "number": "#d8a5c2", "type": "#8fbad8", "comment": "#8a7b65" }
+  }
+}

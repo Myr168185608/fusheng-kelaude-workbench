@@ -1,0 +1,19 @@
+{
+  "id": "ops-pulse",
+  "type": "plugin",
+  "name": "运维脉搏",
+  "version": "1.0.0",
+  "description": "在监控页放一张运维小卡：CPU 与内存的实时脉搏、负载与磁盘、多时区时钟，以及一键填入输入框的常用只读巡检指令。",
+  "author": "浮生氪劳德工作台",
+  "license": "MIT",
+  "engines": { "workbench": ">=1.1.0" },
+  "icon": "💓",
+  "accent": "#d9822b",
+  "tags": ["运维", "监控", "效率"],
+  "permissions": ["system.read", "composer.insert", "storage"],
+  "main": "pulse.js",
+  "style": "pulse.css",
+  "contributes": {
+    "widget": { "title": "运维脉搏", "size": "wide", "height": 250 }
+  }
+}

@@ -1,0 +1,78 @@
+/* 浮生氪劳德工作台 · 插件基础样式 v1
+   Every value follows the current workbench skin through --wb-* variables, so plugins match any skin for free.
+   Fallbacks keep the first paint readable before the workbench hands over the palette. */
+@font-face{font-family:Workbench;src:local("Inter"),local("SF Pro Text");font-display:swap}
+:root{--wb-font:Workbench,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;--wb-mono:"SFMono-Regular","JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;--wb-radius:12px;--wb-radius-sm:8px;--wb-ease:cubic-bezier(.2,.8,.2,1)}
+:root{--wb-bg:#f6f5f0;--wb-surface:#fffefb;--wb-surface-2:#fafaf6;--wb-sunken:#f1f2ec;--wb-line:#e4e5dd;--wb-line-2:#d7dad0;--wb-ink:#1c2a26;--wb-ink-2:#3b4943;--wb-ink-3:#5b6861;--wb-ink-4:#858f88;--wb-ink-5:#aab1ab;--wb-brand:#2f6a52;--wb-brand-2:#255845;--wb-brand-3:#1b4234;--wb-brand-4:#82b897;--wb-brand-soft:#e3eee6;--wb-brand-tint:#f0f6f1;--wb-brand-line:#c6dbcd;--wb-on-brand:#fff;--wb-amber:#9a6214;--wb-amber-2:#c98a2e;--wb-amber-soft:#fbf2df;--wb-red:#ad4537;--wb-red-soft:#fbebe7;--wb-blue:#2e6482;--wb-blue-soft:#e8f1f6;--wb-ok:#5fb184;--wb-track:#e4e8e0;--wb-grid:#eeefe9;--wb-shadow:#1a2b24;--wb-chart-1:#2f6a52;--wb-chart-2:#97b4a6;--wb-chart-3:#dbd0b4;--wb-chart-4:#d9ad6c}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;min-height:100%;background:transparent}
+body{font:13px/1.55 var(--wb-font);color:var(--wb-ink);-webkit-font-smoothing:antialiased;overflow-wrap:anywhere}
+html[data-surface="panel"] body{padding:28px 32px 32px}
+html[data-surface="widget"] body{padding:2px 0 0}
+html[data-surface="overlay"] body,html[data-surface="background"] body{overflow:hidden}
+h1,h2,h3,h4,p{margin:0}
+h1{font-size:22px;font-weight:680;letter-spacing:-.2px}
+h2{font-size:16px;font-weight:650}
+h3{font-size:14px;font-weight:650}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none;padding:0}
+:focus-visible{outline:2px solid var(--wb-brand);outline-offset:2px;border-radius:6px}
+::selection{background:color-mix(in srgb,var(--wb-brand) 24%,transparent)}
+.wb-muted{color:var(--wb-ink-3)}
+.wb-faint{color:var(--wb-ink-4)}
+.wb-mono{font-family:var(--wb-mono);font-variant-numeric:tabular-nums}
+.wb-num{font-variant-numeric:tabular-nums}
+.wb-eyebrow{display:block;font-size:10.5px;letter-spacing:1.6px;font-weight:650;color:var(--wb-ink-4);text-transform:uppercase}
+.wb-row{display:flex;align-items:center;gap:10px;min-width:0}
+.wb-between{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.wb-stack{display:flex;flex-direction:column;gap:12px;min-width:0}
+.wb-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(var(--wb-col,180px),1fr))}
+.wb-card{background:var(--wb-surface);border:1px solid var(--wb-line);border-radius:var(--wb-radius);padding:16px 18px;min-width:0;box-shadow:0 1px 2px color-mix(in srgb,var(--wb-shadow) 4%,transparent)}
+.wb-card.flat{box-shadow:none;background:var(--wb-surface-2)}
+.wb-kpi{display:flex;flex-direction:column;gap:4px;min-width:0}
+.wb-kpi>span{font-size:12px;color:var(--wb-ink-3);font-weight:550}
+.wb-kpi>strong{font-size:24px;font-weight:680;letter-spacing:-.4px;font-variant-numeric:tabular-nums;line-height:1.2}
+.wb-kpi>small{font-size:11.5px;color:var(--wb-ink-4)}
+.wb-tag{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:999px;font-size:11.5px;font-weight:600;background:var(--wb-brand-soft);color:var(--wb-brand-2);white-space:nowrap}
+.wb-tag.warn{background:var(--wb-amber-soft);color:var(--wb-amber)}
+.wb-tag.bad{background:var(--wb-red-soft);color:var(--wb-red)}
+.wb-tag.info{background:var(--wb-blue-soft);color:var(--wb-blue)}
+.wb-tag.muted{background:var(--wb-sunken);color:var(--wb-ink-3)}
+.wb-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:32px;padding:0 13px;border-radius:9px;font-size:12.5px;font-weight:600;border:1px solid var(--wb-line);background:var(--wb-surface);color:var(--wb-ink-2);transition:background .15s,border-color .15s,color .15s,transform .1s}
+.wb-btn:hover{background:var(--wb-sunken);border-color:var(--wb-line-2);color:var(--wb-ink)}
+.wb-btn:active{transform:translateY(1px)}
+.wb-btn.primary{background:var(--wb-brand-2);border-color:transparent;color:var(--wb-on-brand)}
+.wb-btn.primary:hover{background:var(--wb-brand)}
+.wb-btn.ghost{border-color:transparent;background:transparent}
+.wb-btn.small{height:26px;padding:0 9px;font-size:11.5px;border-radius:7px}
+.wb-btn:disabled{opacity:.5;cursor:default;transform:none}
+.wb-segment{display:inline-flex;padding:3px;gap:2px;border-radius:10px;background:var(--wb-sunken);border:1px solid var(--wb-line)}
+.wb-segment>button{height:26px;padding:0 11px;border-radius:7px;font-size:12px;font-weight:600;color:var(--wb-ink-3)}
+.wb-segment>button[aria-pressed="true"]{background:var(--wb-surface);color:var(--wb-brand-3);box-shadow:0 1px 2px color-mix(in srgb,var(--wb-shadow) 10%,transparent)}
+.wb-progress{height:6px;border-radius:99px;background:var(--wb-track);overflow:hidden}
+.wb-progress>span{display:block;height:100%;border-radius:inherit;background:var(--wb-grad-ok,var(--wb-brand));transition:width .5s var(--wb-ease)}
+.wb-progress.warn>span{background:var(--wb-grad-warn,var(--wb-amber-2))}
+.wb-progress.bad>span{background:var(--wb-grad-danger,var(--wb-red))}
+.wb-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.wb-list>li{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--wb-line);min-width:0}
+.wb-list>li:last-child{border-bottom:0}
+.wb-list button.wb-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 8px;border-radius:9px;min-width:0}
+.wb-list button.wb-item:hover{background:var(--wb-sunken)}
+.wb-ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.wb-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;color:var(--wb-ink-4);padding:22px 12px;font-size:12.5px}
+.wb-empty strong{color:var(--wb-ink-2);font-size:13.5px}
+.wb-dot{width:8px;height:8px;border-radius:50%;background:var(--wb-ok);flex-shrink:0}
+.wb-legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:11.5px;color:var(--wb-ink-3)}
+.wb-legend>span{display:inline-flex;align-items:center;gap:6px}
+.wb-legend i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.wb-chart{width:100%;height:auto;display:block;overflow:visible}
+.wb-chart .grid{stroke:var(--wb-grid);stroke-width:1;fill:none}
+.wb-chart .axis{fill:var(--wb-ink-4);font-size:10px;font-family:var(--wb-font)}
+.wb-skeleton{border-radius:8px;background:linear-gradient(90deg,var(--wb-sunken),var(--wb-surface-2),var(--wb-sunken));background-size:200% 100%;animation:wb-shimmer 1.4s linear infinite}
+@keyframes wb-shimmer{to{background-position:-200% 0}}
+@keyframes wb-fade-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.wb-fade-in{animation:wb-fade-in .35s var(--wb-ease) both}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--wb-line-2);border-radius:9px;border:2px solid transparent;background-clip:padding-box}

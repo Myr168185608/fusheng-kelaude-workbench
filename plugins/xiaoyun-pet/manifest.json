@@ -1,0 +1,22 @@
+{
+  "id": "xiaoyun-pet",
+  "type": "plugin",
+  "name": "小云",
+  "version": "1.0.0",
+  "description": "住在工作台角落的一朵小云：会跟着任务思考、干活、等你确认、庆祝完成，额度紧张时提醒你歇一歇。点点它，它会越来越亲近你。",
+  "author": "浮生氪劳德工作台",
+  "license": "MIT",
+  "engines": { "workbench": ">=1.1.0" },
+  "icon": "☁️",
+  "accent": "#5b9be6",
+  "tags": ["宠物", "陪伴", "趣味"],
+  "permissions": ["activity", "usage.read", "storage"],
+  "main": "pet.js",
+  "style": "pet.css",
+  "contributes": {
+    "overlay": { "title": "小云", "width": 150, "height": 170, "anchor": "bottom-right" },
+    "commands": [
+      { "id": "pet", "title": "摸摸小云", "subtitle": "小云会很开心", "icon": "sparkles" }
+    ]
+  }
+}

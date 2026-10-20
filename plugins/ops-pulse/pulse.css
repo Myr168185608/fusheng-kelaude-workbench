@@ -1,0 +1,88 @@
+/* 运维脉搏 · Vitals, clocks and quick prompts side by side on a wide card; they stack as the card narrows. */
+html,body{overflow:hidden}
+.op{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(150px,.62fr) minmax(0,1fr);align-items:start}
+.op>*{min-width:0;padding:0 22px}
+.op>:first-child{padding-left:0}
+.op>:last-child{padding-right:0}
+.op>*+*{border-left:1px solid var(--wb-line)}
+
+/* Vitals */
+.op-vitals{display:flex;flex-direction:column;gap:8px}
+.op-metric{display:flex;flex-direction:column;gap:3px;min-width:0}
+.op-metric-head{display:flex;align-items:baseline;gap:8px;min-width:0}
+.op-label{flex:none;width:30px;font-size:12px;font-weight:600;color:var(--wb-ink-3)}
+.op-value{min-width:3.2ch;font-size:20px;font-weight:680;letter-spacing:-.3px;line-height:1.2;font-variant-numeric:tabular-nums}
+.op-state{display:inline-flex;align-self:center}
+.op-state .wb-tag,.op-facts .wb-tag{height:19px;padding:0 7px;font-size:10.5px}
+.op-note{min-width:0;margin-left:auto;overflow:hidden;font-size:11.5px;color:var(--wb-ink-4);white-space:nowrap;text-overflow:ellipsis}
+.op-chart{min-width:0;height:44px}
+.op-trace{display:block;max-width:100%;overflow:visible}
+.op-trace .grid{stroke:var(--wb-grid);stroke-width:1}
+.op-trace .base{stroke:var(--wb-line-2);stroke-width:1}
+.op-trace .area{fill:var(--wb-brand);opacity:.1}
+.op-trace .line{fill:none;stroke:var(--wb-brand);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.op-trace .dot{fill:var(--wb-brand);stroke:var(--wb-surface);stroke-width:3;paint-order:stroke}
+.op-trace .dot.warn,.op-trace .halo.warn{--op-state:var(--wb-amber-2)}
+.op-trace .dot.bad,.op-trace .halo.bad{--op-state:var(--wb-red)}
+.op-trace .dot.warn,.op-trace .dot.bad{fill:var(--op-state)}
+.op-trace .dot.hover{fill:var(--wb-ink-2)}
+.op-trace .halo{fill:none;stroke:var(--op-state,var(--wb-brand));stroke-width:1.5;vector-effect:non-scaling-stroke;transform-box:fill-box;transform-origin:center;animation:op-pulse 2.6s cubic-bezier(.2,.7,.3,1) infinite;pointer-events:none}
+.op-trace .cross{stroke:var(--wb-ink-4);stroke-width:1;pointer-events:none}
+.op-trace .hit{fill:transparent;cursor:crosshair;outline:none}
+.op-trace .hit:focus-visible{fill:color-mix(in srgb,var(--wb-brand) 7%,transparent);stroke:var(--wb-brand);stroke-width:1.5}
+.op-caption{margin-top:-3px;font-size:11px;color:var(--wb-ink-4)}
+.op-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:2px 0 0;padding-top:10px;border-top:1px solid var(--wb-line)}
+.op-facts>div{min-width:0}
+.op-facts dt{margin-bottom:2px;font-size:11px;font-weight:550;color:var(--wb-ink-4)}
+.op-facts dd{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0;font-size:12.5px;font-weight:600;color:var(--wb-ink-2);font-variant-numeric:tabular-nums}
+@keyframes op-pulse{0%{transform:scale(1);opacity:.65}70%,100%{transform:scale(3.2);opacity:0}}
+
+/* Clocks */
+.op-clocks{display:flex;flex-direction:column;gap:4px}
+.op-clock{display:flex;flex-direction:column;align-items:flex-start;min-width:0;margin:0 -10px;padding:6px 10px;border-radius:10px;text-align:left}
+.op-clock-label{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:var(--wb-ink-3)}
+.op-clock-time{font-size:20px;font-weight:650;letter-spacing:.3px;line-height:1.3;font-variant-numeric:tabular-nums}
+.op-clock small{font-size:11px;color:var(--wb-ink-4);white-space:nowrap}
+button.op-clock{width:calc(100% + 20px);transition:background .15s}
+button.op-clock:hover{background:var(--wb-sunken)}
+.op-clock-switch{font-size:11px;color:var(--wb-ink-4);transition:color .15s}
+button.op-clock:hover .op-clock-switch{color:var(--wb-brand)}
+
+/* Quick prompts */
+.op-quick{display:flex;flex-direction:column;gap:6px}
+.op-quick-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 8px}
+.op-quick-head h3{font-size:12.5px;font-weight:650;color:var(--wb-ink-2)}
+.op-quick-head small{font-size:11px;color:var(--wb-ink-4)}
+.op-prompts{display:flex;flex-direction:column;gap:2px}
+.op-prompt{display:flex;align-items:center;gap:10px;min-width:0;margin:0 -8px;padding:5px 8px;border-radius:9px;text-align:left;transition:background .15s}
+.op-prompt:hover{background:var(--wb-sunken)}
+.op-prompt:active{background:var(--wb-brand-tint)}
+.op-prompt-icon{flex:none;display:grid;place-items:center;width:28px;height:28px;border:1px solid var(--wb-line);border-radius:8px;background:var(--wb-surface-2);font-size:14px;line-height:1}
+.op-prompt-text{display:flex;flex-direction:column;min-width:0}
+.op-prompt-text strong{font-size:12.5px;font-weight:600;line-height:1.35}
+.op-prompt-text small{overflow:hidden;font-size:11px;line-height:1.35;color:var(--wb-ink-4);white-space:nowrap;text-overflow:ellipsis}
+.op-prompt::after{content:"填入";flex:none;margin-left:auto;font-size:11px;font-weight:600;color:var(--wb-brand);opacity:0;transition:opacity .15s}
+.op-prompt:hover::after,.op-prompt:focus-visible::after{opacity:1}
+
+/* Tooltip */
+.op-tip{position:fixed;left:0;top:0;z-index:10;display:flex;flex-direction:column;gap:1px;padding:6px 10px;border:1px solid var(--wb-line-2);border-radius:9px;background:var(--wb-surface);box-shadow:0 10px 26px -12px color-mix(in srgb,var(--wb-shadow) 45%,transparent);white-space:nowrap;pointer-events:none}
+.op-tip[hidden]{display:none}
+.op-tip strong{font-size:14px;font-weight:680;font-variant-numeric:tabular-nums}
+.op-tip span{font-size:11px;color:var(--wb-ink-4)}
+
+/* Narrow cards */
+@media (max-width:760px){
+  .op{grid-template-columns:minmax(0,1fr);row-gap:14px}
+  .op>*{padding:0}
+  .op>*+*{padding-top:14px;border-left:0;border-top:1px solid var(--wb-line)}
+  .op-clocks{flex-direction:row;gap:8px}
+  .op-clock{flex:1 1 0;margin:0;padding:4px 8px}
+  .op-clock:first-child{padding-left:0}
+  button.op-clock{width:auto}
+  .op-prompts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}
+}
+@media (max-width:440px){
+  .op-prompts{grid-template-columns:minmax(0,1fr)}
+  .op-clock-time{font-size:17px}
+  .op-clock small{white-space:normal}
+}

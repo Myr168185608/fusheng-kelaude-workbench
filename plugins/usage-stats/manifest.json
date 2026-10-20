@@ -1,0 +1,24 @@
+{
+  "id": "usage-stats",
+  "type": "plugin",
+  "name": "用量统计",
+  "version": "1.0.0",
+  "description": "把官方额度、Token 与费用估算汇总成一张看板：额度进度、每日走势、模型分布和消耗最多的会话，并在状态栏显示今日费用。",
+  "author": "浮生氪劳德工作台",
+  "license": "MIT",
+  "engines": { "workbench": ">=1.1.0" },
+  "icon": "📊",
+  "accent": "#2f6a52",
+  "tags": ["统计", "额度", "看板"],
+  "permissions": ["usage.read", "sessions.read", "storage", "ui.statusbar"],
+  "main": "main.js",
+  "style": "style.css",
+  "contributes": {
+    "panel": { "title": "用量统计" },
+    "widget": { "title": "用量速览", "size": "wide", "height": 200 },
+    "background": true,
+    "commands": [
+      { "id": "open", "title": "打开用量统计", "subtitle": "额度、Token 与费用看板", "icon": "coins", "action": "open-panel" }
+    ]
+  }
+}

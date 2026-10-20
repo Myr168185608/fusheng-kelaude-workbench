@@ -1,0 +1,76 @@
+/* 小云 · The cloud keeps its own colors so it reads on any skin; the speech bubble follows the skin. */
+html,body{height:100%}
+.pet{position:relative;width:100%;height:100%;user-select:none;-webkit-user-select:none}
+.pet-body{position:absolute;left:50%;bottom:4px;width:124px;height:108px;margin-left:-62px;border-radius:40px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.pet-body:focus-visible{outline-offset:-6px}
+.pet-art{display:block;width:100%;height:100%;overflow:visible}
+
+/* Bubble */
+.pet-bubble{position:absolute;left:50%;top:6px;max-width:140px;width:max-content;padding:6px 10px;border-radius:12px;background:var(--wb-surface);border:1px solid var(--wb-line-2);color:var(--wb-ink);font-size:12px;line-height:1.45;text-align:center;box-shadow:0 8px 20px -12px color-mix(in srgb,var(--wb-shadow) 60%,transparent);opacity:0;transform:translate(-50%,5px) scale(.94);transform-origin:50% 100%;transition:opacity .25s,transform .3s var(--wb-ease);pointer-events:none}
+.pet-bubble.show{opacity:1;transform:translate(-50%,0) scale(1)}
+.pet-bubble>span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pet-bubble::after{content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;margin-left:-4px;background:var(--wb-surface);border-right:1px solid var(--wb-line-2);border-bottom:1px solid var(--wb-line-2);transform:rotate(45deg)}
+.pet-badge{position:absolute;left:6px;bottom:6px;padding:1px 7px;border-radius:99px;background:var(--wb-surface);border:1px solid var(--wb-line);color:#e2557a;font-size:10.5px;font-weight:700;opacity:0;transition:opacity .2s;pointer-events:none}
+.pet:hover .pet-badge,.pet:focus-within .pet-badge{opacity:1}
+.pet-heart{position:absolute;bottom:70px;color:#ff6b8b;font-size:15px;pointer-events:none;animation:pet-heart 1.15s var(--wb-ease) both}
+
+/* Artwork */
+.pet-cloud{fill:url(#pet-fill);stroke:#bccde4;stroke-width:1.5;stroke-linejoin:round;filter:drop-shadow(0 3px 5px rgba(42,74,122,.16))}
+html[data-scheme="dark"] .pet-cloud{stroke:#d5e2f3;filter:drop-shadow(0 0 9px rgba(168,204,255,.22))}
+.pet[data-state="error"] .pet-cloud{fill:url(#pet-fill-gray)}
+.pet-shine{fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;opacity:.9}
+.pet-shadow{fill:#2a3a52;opacity:.13;transform-box:fill-box;transform-origin:center;animation:pet-shadow 3.6s ease-in-out infinite}
+html[data-scheme="dark"] .pet-shadow{fill:#000;opacity:.35}
+.pet-eye ellipse{fill:#29323f}
+.pet-glint{fill:#fff}
+.pet-lines path,path.pet-lines{fill:none;stroke:#29323f;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.pet-grin{fill:#3a2f3a;stroke:#29323f;stroke-width:1.6;stroke-linejoin:round}
+.pet-mouth{fill:#3a2f3a}
+.pet-blush{fill:#ff8fab;opacity:.42;transition:opacity .3s}
+.pet.petted .pet-blush{opacity:.75}
+.pet-think circle{fill:#b8c6da}
+html[data-scheme="dark"] .pet-think circle{fill:#d5e0ef}
+.pet-gear{stroke:#8aa0bd;fill:#8aa0bd;transform-box:fill-box;transform-origin:center;animation:pet-spin 2.4s linear infinite}
+.pet-question{font:800 22px/1 var(--wb-font);fill:var(--wb-amber-2);animation:pet-hop .8s ease-in-out infinite}
+.pet-zzz text{font:700 11px/1 var(--wb-font);fill:#7f9cc7;animation:pet-zzz 3s ease-in-out infinite}
+.pet-zzz text:nth-child(2){font-size:14px;animation-delay:.5s}
+.pet-zzz text:nth-child(3){font-size:17px;animation-delay:1s}
+.pet-sweat{fill:#8ec5ff;stroke:#5d9ee6;stroke-width:1}
+.pet-rain path{stroke:#7fb2ea;stroke-width:2.4;stroke-linecap:round;animation:pet-rain .9s linear infinite}
+.pet-rain path:nth-child(2){animation-delay:.3s}
+.pet-rain path:nth-child(3){animation-delay:.6s}
+.pet-sparkles path{fill:#f2c14e;transform-box:fill-box;transform-origin:center;animation:pet-twinkle 1.2s ease-in-out infinite}
+.pet-sparkles path:nth-child(2){animation-delay:.3s}
+.pet-sparkles path:nth-child(3){animation-delay:.6s}
+
+/* Which parts each mood shows */
+.pet .opt{display:none}
+.pet[data-state="idle"] .on-idle,.pet[data-state="thinking"] .on-thinking,.pet[data-state="working"] .on-working,.pet[data-state="approval"] .on-approval,.pet[data-state="done"] .on-done,.pet[data-state="error"] .on-error,.pet[data-state="sleep"] .on-sleep,.pet[data-state="worried"] .on-worried,.pet.petted .on-petted{display:inline}
+.pet.petted .off-petted{display:none}
+
+/* Motion */
+.pet-float{animation:pet-bob 3.6s ease-in-out infinite}
+.pet[data-state="working"] .pet-float{animation-duration:1.1s}
+.pet[data-state="working"] .pet-shadow{animation-duration:1.1s}
+.pet[data-state="approval"] .pet-float{transform-box:fill-box;transform-origin:50% 90%;animation:pet-wiggle .9s ease-in-out infinite}
+.pet[data-state="done"] .pet-float{animation:pet-jump .7s var(--wb-ease) 2}
+.pet[data-state="sleep"] .pet-float{animation:none}
+.pet[data-state="sleep"] .pet-squash{transform-box:fill-box;transform-origin:50% 100%;animation:pet-breathe 4.8s ease-in-out infinite}
+.pet-squash{transform-box:fill-box;transform-origin:50% 100%}
+.pet.squish .pet-squash{animation:pet-squish .45s var(--wb-ease)}
+.pet-eye{transform-box:fill-box;transform-origin:center;animation:pet-blink 5.5s infinite}
+.pet[data-state="thinking"] .pet-eyes{transform:translate(1.5px,-1.5px)}
+.pet[data-state="approval"] .pet-eye{animation:none;transform:scale(1.12)}
+@keyframes pet-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@keyframes pet-shadow{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.88)}}
+@keyframes pet-wiggle{0%,100%{transform:rotate(0)}25%{transform:rotate(-4deg)}75%{transform:rotate(4deg)}}
+@keyframes pet-jump{0%,100%{transform:translateY(0)}40%{transform:translateY(-11px)}70%{transform:translateY(0)}85%{transform:translateY(-2px)}}
+@keyframes pet-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.03,.97)}}
+@keyframes pet-squish{0%{transform:scale(1,1)}35%{transform:scale(1.09,.9)}70%{transform:scale(.97,1.05)}100%{transform:scale(1,1)}}
+@keyframes pet-blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}
+@keyframes pet-spin{to{transform:rotate(360deg)}}
+@keyframes pet-hop{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@keyframes pet-zzz{0%{opacity:0;transform:translate(0,4px)}30%,70%{opacity:1}100%{opacity:0;transform:translate(3px,-4px)}}
+@keyframes pet-rain{0%{opacity:0;transform:translateY(-3px)}30%{opacity:1}100%{opacity:0;transform:translateY(7px)}}
+@keyframes pet-twinkle{0%,100%{transform:scale(.4);opacity:.3}50%{transform:scale(1);opacity:1}}
+@keyframes pet-heart{0%{opacity:0;transform:translateY(0) scale(.5)}25%{opacity:1;transform:translateY(-14px) scale(1)}100%{opacity:0;transform:translateY(-58px) scale(.9)}}

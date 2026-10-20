@@ -1,0 +1,65 @@
+/* 番茄专注 · Colors come from the --wb-* variables, so the timer follows whichever skin is active. */
+.ft{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.ft-head h1{margin:6px 0}
+.ft-head p{max-width:620px;font-size:12.5px;line-height:1.7}
+.ft-main{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px;align-items:stretch}
+.ft-label{font-size:12px;font-weight:600;color:var(--wb-ink-3)}
+
+/* Timer: the ring empties as the phase runs down */
+.ft-timer{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px 18px 18px}
+.ft-dial{position:relative;width:220px;max-width:100%;aspect-ratio:1}
+.ft-ring{display:block;width:100%;height:100%}
+.ft-track{fill:none;stroke:var(--wb-track);stroke-width:10}
+.ft-arc{fill:none;stroke:var(--wb-brand);stroke-width:10;stroke-linecap:round;transition:stroke-dashoffset 1s linear,stroke .3s}
+.ft-arc.empty{opacity:0}
+html[data-phase="break"] .ft-arc{stroke:var(--wb-blue)}
+.ft-readout{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+.ft-time{font-size:46px;font-weight:650;letter-spacing:-1px;line-height:1;color:var(--wb-ink);font-variant-numeric:tabular-nums}
+.ft-phase{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:11.5px;font-weight:600;background:var(--wb-brand-soft);color:var(--wb-brand-2);white-space:nowrap}
+html[data-phase="break"] .ft-phase{background:var(--wb-blue-soft);color:var(--wb-blue)}
+.ft-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.ft-controls .wb-btn.primary{min-width:112px}
+.ft-hint{max-width:360px;text-align:center;font-size:11.5px;line-height:1.6;color:var(--wb-ink-4)}
+
+/* Today and settings */
+.ft-side{display:flex;flex-direction:column;gap:14px;min-width:0}
+.ft-today-row{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;margin:6px 0 12px}
+.ft-count{font-size:34px;font-weight:680;letter-spacing:-.6px;line-height:1.1;font-variant-numeric:tabular-nums}
+.ft-today-row small{font-size:12px;color:var(--wb-ink-4)}
+.ft-dots{display:flex;flex-wrap:wrap;gap:6px}
+.ft-dots i{width:12px;height:12px;border-radius:50%;background:var(--wb-track)}
+.ft-dots i.done{background:var(--wb-brand)}
+.ft-week{margin-top:12px;font-size:12px;color:var(--wb-ink-4)}
+.ft-settings{display:flex;flex-direction:column;gap:10px}
+.ft-setting{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.ft-setting>span{font-size:12.5px;color:var(--wb-ink-2)}
+
+/* History: one series, so every bar wears the same color */
+.ft-history{padding:16px 18px 12px}
+.ft-history-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.ft-history-head small{font-size:12px}
+.ft-chart-box{min-height:176px;margin-top:8px;min-width:0}
+.ft-chart{display:block;max-width:100%;overflow:visible;font-family:var(--wb-font)}
+.ft-chart .grid{stroke:var(--wb-grid);stroke-width:1}
+.ft-chart .base{stroke:var(--wb-line-2);stroke-width:1}
+.ft-chart .tick{fill:var(--wb-ink-4);font-size:10.5px;font-variant-numeric:tabular-nums}
+.ft-chart .tick.strong{fill:var(--wb-ink-2);font-weight:650}
+.ft-chart .value{fill:var(--wb-ink-2);font-size:11px;font-weight:650;font-variant-numeric:tabular-nums}
+.ft-chart .bar{fill:var(--wb-chart-1);transition:opacity .15s}
+.ft-chart .stub{fill:var(--wb-track)}
+.ft-chart.hovering .bar:not(.active){opacity:.45}
+.ft-chart .hit{fill:transparent;outline:none}
+.ft-chart .hit:focus-visible{fill:color-mix(in srgb,var(--wb-brand) 8%,transparent);stroke:var(--wb-brand);stroke-width:1.5}
+
+.ft-tip{position:fixed;left:0;top:0;z-index:10;min-width:110px;padding:8px 11px;border-radius:10px;background:var(--wb-surface);border:1px solid var(--wb-line-2);box-shadow:0 10px 26px -12px color-mix(in srgb,var(--wb-shadow) 45%,transparent);pointer-events:none;display:flex;flex-direction:column;gap:2px}
+.ft-tip small{font-size:11px;color:var(--wb-ink-4)}
+.ft-tip strong{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+
+@media (max-width:760px){
+  .ft-main{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:560px){
+  html[data-surface="panel"] body{padding:18px 16px 24px}
+  .ft-dial{width:196px}
+  .ft-time{font-size:40px}
+}
