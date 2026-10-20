@@ -11,7 +11,7 @@ import { THEMES, DEFAULT_THEME } from '../public/themes.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cwd = process.env.INIT_CWD || process.cwd();
-const DOCS = 'https://github.com/qiuxinyuan321/cloud-ops-workbench/blob/main/docs/PLUGINS.md';
+const DOCS = 'https://github.com/qiuxinyuan321/fusheng-kelaude-workbench/blob/main/docs/PLUGINS.md';
 const { version } = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8'));
 
 function parseArgs(argv) {

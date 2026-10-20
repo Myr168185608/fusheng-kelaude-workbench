@@ -1,0 +1,21 @@
+{
+  "id": "task-resume",
+  "type": "plugin",
+  "name": "任务断点续跑",
+  "version": "1.0.0",
+  "description": "保存任务进度检查点，在官方会话和原工作区中继续中断任务；默认手动恢复，可选择有限次数的自动恢复。",
+  "author": "浮生氪劳德工作台",
+  "license": "MIT",
+  "engines": { "workbench": ">=1.2.0" },
+  "icon": "↻",
+  "accent": "#2f6a52",
+  "tags": ["任务", "恢复", "可选"],
+  "permissions": ["backend", "sessions.read"],
+  "main": "main.js",
+  "backend": "backend.mjs",
+  "style": "style.css",
+  "contributes": {
+    "panel": { "title": "任务断点续跑" },
+    "commands": [{ "id": "open", "title": "查看任务检查点", "subtitle": "从原会话继续未完成任务", "icon": "refresh-cw", "action": "open-panel" }]
+  }
+}

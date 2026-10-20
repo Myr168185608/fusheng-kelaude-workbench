@@ -10,7 +10,7 @@
 
 [Unit]
 Description=浮生氪劳德工作台
-Documentation=https://github.com/qiuxinyuan321/cloud-ops-workbench
+Documentation=https://github.com/qiuxinyuan321/fusheng-kelaude-workbench
 After=network-online.target
 Wants=network-online.target
 

@@ -2,7 +2,7 @@
  * Loaded into every plugin frame before the plugin's own script. Exposes window.workbench.
  * The frame is sandboxed (opaque origin, no cookies, no network): everything goes through a private
  * MessageChannel that the workbench page hands over once, and every call is checked against the
- * permissions the user granted. Docs: https://github.com/qiuxinyuan321/cloud-ops-workbench/blob/main/docs/PLUGINS.md
+ * permissions the user granted. Docs: https://github.com/qiuxinyuan321/fusheng-kelaude-workbench/blob/main/docs/PLUGINS.md
  */
 (function () {
   'use strict';
@@ -124,6 +124,7 @@
       remove: function (key) { return call('storage.remove', { key: key }); },
       keys: function () { return call('storage.keys'); },
     },
+    backend: { call: function (method, params) { return call('backend.call', { method: method, params: params || {} }); } },
     usage: { get: function () { return call('usage.get'); } },
     system: { get: function () { return call('system.get'); } },
     sessions: {

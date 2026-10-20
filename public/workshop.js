@@ -4,7 +4,7 @@
 import { THEMES, AUTO_THEMES } from './themes.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
-const DOCS_URL = 'https://github.com/qiuxinyuan321/cloud-ops-workbench/blob/main/docs/PLUGINS.md';
+const DOCS_URL = 'https://github.com/qiuxinyuan321/fusheng-kelaude-workbench/blob/main/docs/PLUGINS.md';
 const SOURCES = { builtin: '内置', workshop: '创意工坊', local: '本地导入', dev: '开发中' };
 const SURFACES = { panel: '面板', widget: '监控小组件', overlay: '悬浮窗', background: '后台' };
 const SOURCE_NOTES = {
@@ -36,7 +36,7 @@ export function createWorkshop(ctx) {
   /* ---------- Rendering ---------- */
   function permissionChips(list) {
     const meta = catalog().permissions || {};
-    return (list || []).map(p => { const info = meta[p] || { label: p, description: '', risk: 'low' }; return `<span class="ws-chip perm ${info.risk === 'medium' ? 'warn' : ''}" title="${esc(info.description)}">${esc(info.label)}</span>`; }).join('');
+    return (list || []).map(p => { const info = meta[p] || { label: p, description: '', risk: 'low' }; return `<span class="ws-chip perm ${info.risk !== 'low' ? 'warn' : ''}" title="${esc(info.description)}">${esc(info.label)}</span>`; }).join('');
   }
   const surfaceChips = list => (list || []).map(s => `<span class="ws-chip surface">${esc(SURFACES[s] || s)}</span>`).join('');
   function button(action, id, label, { primary = false, disabled = false, danger = false } = {}) {
@@ -45,6 +45,7 @@ export function createWorkshop(ctx) {
   }
   function pluginState(p) {
     if (safe()) return { tone: 'muted', text: '安全模式' };
+    if (p.backendError) return { tone: 'bad', text: p.backendError };
     if (!p.compatible) return { tone: 'bad', text: `需要 v${p.minVersion}` };
     if (p.needsConsent) return { tone: 'warn', text: '待重新授权' };
     return p.active ? { tone: 'ok', text: '运行中' } : { tone: 'muted', text: '未启用' };
@@ -251,11 +252,11 @@ export function createWorkshop(ctx) {
   function consent(target, { install: installing = false, source = 'workshop' } = {}) {
     const meta = catalog().permissions || {};
     const perms = [...(target.permissions || [])].sort((a, b) => (meta[b]?.risk === 'medium') - (meta[a]?.risk === 'medium'));
-    const list = perms.length ? `<ul class="consent-perms">${perms.map(p => { const info = meta[p] || { label: p, description: '', risk: 'low' }; return `<li class="${info.risk === 'medium' ? 'medium' : ''}"><span class="consent-dot" aria-hidden="true"></span><div><strong>${esc(info.label)}</strong><p>${esc(info.description)}</p></div>${info.risk === 'medium' ? '<span class="ws-chip warn">需留意</span>' : ''}</li>`; }).join('')}</ul>` : '<p class="consent-none">这个插件不申请任何权限，只能显示它自己的界面。</p>';
+    const list = perms.length ? `<ul class="consent-perms">${perms.map(p => { const info = meta[p] || { label: p, description: '', risk: 'low' }; return `<li class="${info.risk !== 'low' ? 'medium' : ''}"><span class="consent-dot" aria-hidden="true"></span><div><strong>${esc(info.label)}</strong><p>${esc(info.description)}</p></div>${info.risk !== 'low' ? '<span class="ws-chip warn">需留意</span>' : ''}</li>`; }).join('')}</ul>` : '<p class="consent-none">这个插件不申请任何权限，只能显示它自己的界面。</p>';
     consentDialog.innerHTML = `<form method="dialog" class="consent">
       <div class="consent-head">${glyph(target, ' large')}<div><span class="eyebrow">PERMISSIONS</span><h2>${installing ? '安装并启用' : '启用'}「${esc(target.name)}」？</h2><small>v${esc(target.version)}${target.author ? ` · ${esc(target.author)}` : ''}${target.surfaces?.length ? ` · ${target.surfaces.map(s => esc(SURFACES[s] || s)).join('、')}` : ''}</small></div></div>
       ${perms.length ? '<p class="consent-lead">它会获得以下权限：</p>' : ''}${list}
-      <div class="consent-note">${icon('shield')}<p>${esc(SOURCE_NOTES[source] || SOURCE_NOTES.workshop)}${esc(CONSENT_NOTE)}</p></div>
+      <div class="consent-note">${icon('shield')}<p>${esc(SOURCE_NOTES[source] || SOURCE_NOTES.workshop)}${esc(target.permissions?.includes('backend') ? '此插件包含服务端模块，以工作台服务账号运行，可使用上面说明的后端能力。界面仍在隔离沙箱内；仅在你信任此版本源码时启用。' : CONSENT_NOTE)}</p></div>
       <div class="dialog-actions"><button class="button button-secondary" value="cancel">取消</button><button class="button button-primary" value="ok">${installing ? '安装并启用' : '授予并启用'}</button></div>
     </form>`;
     consentDialog.returnValue = '';

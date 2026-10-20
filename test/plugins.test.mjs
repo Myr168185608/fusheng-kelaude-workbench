@@ -15,7 +15,7 @@ const ORIGIN = 'https://claude.test.invalid';
 const WORKSHOP = 'https://workshop.test.invalid/catalog/';
 const PASSWORD = 'test-only-password-do-not-deploy';
 const record = await hashPassword(PASSWORD);
-const BUILTINS = ['ops-pulse', 'usage-stats', 'xiaoyun-pet'];
+const BUILTINS = ['account-pool', 'ops-pulse', 'task-resume', 'usage-stats', 'xiaoyun-pet'];
 const FRAME = { 'Sec-Fetch-Dest': 'iframe', 'Sec-Fetch-Site': 'same-origin' };
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const exists = file => fs.lstat(file).then(() => true, () => false);

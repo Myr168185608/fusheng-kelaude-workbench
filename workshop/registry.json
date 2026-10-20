@@ -1,8 +1,33 @@
 {
   "schema": 1,
   "name": "浮生氪劳德工作台 · 创意工坊",
-  "updatedAt": "2026-10-20T08:09:31.971Z",
+  "updatedAt": "2026-10-20T20:00:41.107Z",
   "items": [
+    {
+      "id": "account-pool",
+      "type": "plugin",
+      "name": "多账号轮询",
+      "version": "1.0.0",
+      "description": "可选的官方账号配置管理：独立登录、会话绑定、逐轮轮询与按额度选择。停用后停止新路由，凭据始终由官方 CLI 管理。",
+      "author": "浮生氪劳德工作台",
+      "tags": [
+        "账号",
+        "轮询",
+        "可选"
+      ],
+      "permissions": [
+        "backend",
+        "sessions.read"
+      ],
+      "icon": "🔁",
+      "accent": "#2f6a52",
+      "surfaces": [
+        "panel"
+      ],
+      "official": true,
+      "bundled": true,
+      "minVersion": "1.2.0"
+    },
     {
       "id": "ops-pulse",
       "type": "plugin",
@@ -28,6 +53,31 @@
       "official": true,
       "bundled": true,
       "minVersion": "1.1.0"
+    },
+    {
+      "id": "task-resume",
+      "type": "plugin",
+      "name": "任务断点续跑",
+      "version": "1.0.0",
+      "description": "保存任务进度检查点，在官方会话和原工作区中继续中断任务；默认手动恢复，可选择有限次数的自动恢复。",
+      "author": "浮生氪劳德工作台",
+      "tags": [
+        "任务",
+        "恢复",
+        "可选"
+      ],
+      "permissions": [
+        "backend",
+        "sessions.read"
+      ],
+      "icon": "↻",
+      "accent": "#2f6a52",
+      "surfaces": [
+        "panel"
+      ],
+      "official": true,
+      "bundled": true,
+      "minVersion": "1.2.0"
     },
     {
       "id": "usage-stats",

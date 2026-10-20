@@ -12,6 +12,7 @@ import {TerminalManager} from './lib/terminal.mjs';
 import {registerIDE} from './lib/api-ide.mjs';
 import {LiveFeed} from './lib/live.mjs';
 import {PluginManager,PluginError} from './lib/plugins.mjs';
+import {ServerPluginHost} from './lib/server-plugins.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 // Shown in the page; release is the directory name under releases/ when deployed from a release tree.
 const version=JSON.parse(await fs.readFile(path.join(root,'package.json'),'utf8')).version,release=path.basename(path.dirname(root))==='releases'?path.basename(root):null;
@@ -34,6 +35,8 @@ export async function createWorkbench(options={}){
  const usage=options.usageMonitor||new UsageMonitor({binary,cwd:workspaceRoot,onUpdate:snapshot=>event({type:'usage',usage:snapshot})});
  const terminals=options.terminals||new TerminalManager({binary,onUpdate:terminals=>event({type:'terminals',terminals})});
  const busy=()=>Boolean(runs.size||terminals.active||mutations.size);
+ async function withExclusive(action){if(shuttingDown)throw new PluginError(503,'工作台正在关闭。');if(busy())throw new PluginError(409,'请等待当前任务、终端或配置操作结束。');const key=Symbol('extension');mutations.add(key);try{return await action();}finally{mutations.delete(key);}}
+ const serverPlugins=new ServerPluginHost({manager:plugins,dataDir,context:{binary,workspaceRoot,getSession:id=>store.get(id),listSessions:()=>[...store.sessions.values()],startTurn,isBusy:busy,isClosing:()=>shuttingDown,withExclusive,runtimeChanged:()=>event({type:'runtime-updated'})}});
  const models=['sonnet','opus','haiku'],effortLevels=['auto','low','medium','high','xhigh','max'];
  const app=express();app.disable('x-powered-by');
  // Only our local reverse proxy may provide a client address; never trust arbitrary X-Forwarded-For chains.
@@ -60,8 +63,9 @@ export async function createWorkbench(options={}){
  app.post('/api/logout',async(req,res)=>{await auth.logout(req.login);for(const c of clients)if(c.key===req.login.key){c.res.end();clients.delete(c);}res.setHeader('Set-Cookie',auth.cookie('',0));res.status(204).end();});
  app.get('/api/bootstrap',async(req,res)=>{
   const [system,account]=await Promise.all([monitor.sample(runs.size+(terminals.active?1:0)),monitor.auth()]);
+  const execution=await serverPlugins.executionStatus(account);
   void usage.refresh().catch(()=>{});
-  res.json({user:req.login.user,csrfToken:req.login.csrfToken,sessions:store.list(),system,account,usage:usage.read(),terminals:terminals.list(),config:{version,release,models,effortLevels,workspaceRoot,rootOperations:process.env.WORKBENCH_ROOT_OPERATIONS==='1',maxConcurrentRuns:1,maxMessageLength:30000,usageSource:'official-cli',costBasis:'API 等价估算，非 Pro 账单',privateWorkspace:true,plugins:{safeMode:plugins.safeMode,workshop:Boolean(plugins.workshopUrl),sdkVersion:1}}});
+  res.json({execution,user:req.login.user,csrfToken:req.login.csrfToken,sessions:store.list(),system,account,usage:usage.read(),terminals:terminals.list(),config:{version,release,models,effortLevels,workspaceRoot,rootOperations:process.env.WORKBENCH_ROOT_OPERATIONS==='1',maxConcurrentRuns:1,maxMessageLength:30000,usageSource:'official-cli',costBasis:'API 等价估算，非 Pro 账单',privateWorkspace:true,plugins:{safeMode:plugins.safeMode,workshop:Boolean(plugins.workshopUrl),sdkVersion:1}}});
  });
  app.get('/api/usage',async(req,res)=>{await usage.refresh({force:req.query.refresh==='1'}).catch(()=>{});res.json(usage.read());});
  app.get('/api/sessions',(req,res)=>res.json(store.list()));
@@ -70,7 +74,7 @@ export async function createWorkbench(options={}){
  const tick=setInterval(async()=>{try{event({type:'system',system:await monitor.sample(runs.size+(terminals.active?1:0))});if(clients.size&&!shuttingDown&&++usageTick%6===0)void usage.refresh().catch(()=>{});}catch{}},15000);tick.unref();
  app.post('/api/sessions',async(req,res)=>{if(store.sessions.size>=500)return send(res,409,'已达到 500 个会话，请先导出和整理历史。');const {title,model='sonnet',permissionMode='bypassPermissions',effort='auto'}=req.body||{};if(!models.includes(model)||!effortLevels.includes(effort)||!['bypassPermissions','default','plan'].includes(permissionMode))return send(res,400,'模型或权限模式不支持。');if(title!=null&&(typeof title!=='string'||title.length>100))return send(res,400,'标题过长。');const s=newSession({title:title?.trim()||'新的对话',model,permissionMode,effort});await fs.mkdir(path.join(workspaceRoot,s.id),{mode:0o700});await store.save(s);notify(s.id,true);res.status(201).json(sessionView(s));});
  app.use('/api/sessions/:id',(req,res,next)=>{req.session=store.get(req.params.id);if(!req.session)return send(res,404,'会话不存在。');next();});
- registerIDE(app,{store,workspaceRoot,terminals,runs,mutations,send,auth,clients,event,isClosing:()=>shuttingDown});
+ registerIDE(app,{store,workspaceRoot,terminals,runs,mutations,send,auth,clients,event,isClosing:()=>shuttingDown,prepareTerminal:async(session,cwd,kind)=>kind==='claude'?serverPlugins.prepare({session,cwd,request:{source:'terminal'},run:{messageId:randomUUID()},kind:'terminal'}):{}});
  app.get('/api/sessions/:id',(req,res)=>res.json(req.query.view==='live'?{...liveSession(req.session),live:feed.info(req.session.id)}:sessionView(req.session)));
  app.get('/api/sessions/:id/tools/:toolId',(req,res)=>{const tool=req.session.tools?.find(t=>t.id===req.params.toolId);if(!tool)return send(res,404,'工具记录不存在。');res.json(tool);});
  app.patch('/api/sessions/:id',async(req,res)=>{
@@ -84,25 +88,59 @@ export async function createWorkbench(options={}){
  for(const key of ['title','archived','model','effort','permissionMode'])if(key in b)s[key]=key==='title'?b[key].trim():b[key];
  await store.save(s);notify(s.id,true);res.json(sessionView(s));
  });
- async function startTurn(s,text,{requestId}={}){
- const fail=(code,msg)=>({code,msg});
- if(shuttingDown)return fail(503,'工作台正在重启，请稍后重试。');
- if(requestId&&s._requestIds?.includes(requestId))return {code:202};
- if(busy())return fail(409,'另一项任务正在运行。请等待完成，或先停止当前任务。');
- if(s.archived)return fail(409,'请先恢复归档会话。');
- if(s.messages.length>=1000)return fail(409,'此会话过长，请新建会话继续。');
- const account=await monitor.auth().catch(()=>null);
- if(account&&account.loggedIn===false)return fail(409,'Claude Code 尚未登录。请先在服务器完成官方登录，再发送任务。');
- const run={messageId:randomUUID(),usageBase:{...s.metrics},startedAt:Date.now(),handle:null};runs.set(s.id,run);
- try{
- s.status='running';s.lastError=null;s.limitHit=null;s.permissions=[];s.metrics.turns++;s.metrics.userMessages++;s.messages.push({id:randomUUID(),role:'user',text:text.trim(),createdAt:now()});if(s.title==='新的对话')s.title=text.trim().replace(/\s+/g,' ').slice(0,32);if(requestId)s._requestIds=[...(s._requestIds||[]),String(requestId).slice(0,80)].slice(-100);
- await store.save(s);notify(s.id,true);
- if(run.cancelRequested||shuttingDown){runs.delete(s.id);s.status='idle';await store.save(s);notify(s.id,true);if(shuttingDown)return fail(503,'工作台正在重启，请稍后重试。');return {code:202};}
- run.handle=runFactory({cwd:path.join(workspaceRoot,s.id),sessionId:s.claudeSessionId||undefined,model:s.model,effort:s.effort||'auto',permissionMode:s.permissionMode,prompt:text.trim(),binary,
- onEvent:e=>{if(e.type==='quota'||e.type==='rate_limit')usage.observe?.(e);const before=feed.before(s,e,run);applyEvent(s,e,run);store.schedule(s);if(!feed.after(s,e,run,before))notify(s.id,e.type==='permission');else legacyNotify(s.id);},
- onExit:async result=>{runs.delete(s.id);s.permissions=[];if(result.timedOut||result.stopReason==='error'||s.status==='error'){s.status='error';}else if(result.stopped){s.status='idle';s.events.push({type:'stopped',time:now(),message:'任务已停止。'});}else if(result.code!==0){s.status='error';s.lastError=s.lastError||'Claude Code 进程已退出，请查看本轮记录后重试。';}else if(s.status!=='error')s.status='idle';s.metrics.durationMs=Math.max(s.metrics.durationMs,run.usageBase.durationMs+Date.now()-run.startedAt);try{await store.save(s);}catch{console.error('Failed to persist completed session');}notify(s.id,true);}
- });return {code:202};
- }catch(error){runs.delete(s.id);if(error.status>=400&&error.status<500){notify(s.id,true);return fail(error.status,error.message);}s.status='error';s.lastError='无法启动 Claude Code，请检查服务状态。';await store.save(s);notify(s.id,true);return fail(503,s.lastError);}
+ async function startTurn(s,text,request={}){
+  const {requestId}=request,fail=(code,msg)=>({code,msg});
+  if(shuttingDown)return fail(503,'工作台正在重启，请稍后重试。');
+  if(requestId&&s._requestIds?.includes(requestId))return {code:202};
+  if(busy())return fail(409,'另一项任务正在运行。请等待完成，或先停止当前任务。');
+  if(s.archived)return fail(409,'请先恢复归档会话。');
+  if(s.messages.length>=1000)return fail(409,'此会话过长，请新建会话继续。');
+  // The reservation and completion include asynchronous preflight and persistence.
+  let resolveDone, finished=false, staged=null;
+  const run={messageId:randomUUID(),usageBase:{...s.metrics},startedAt:Date.now(),handle:null,done:new Promise(resolve=>{resolveDone=resolve;})};
+  runs.set(s.id,run);
+  async function finish(result){
+   if(finished)return run.done;
+   finished=true;
+   try {
+    if(result.preflightFailed && staged)Object.assign(s,staged);
+    else if(!result.preflightFailed){
+     s.permissions=[];
+     if(result.timedOut||result.stopReason==='error'||s.status==='error')s.status='error';
+     else if(result.stopped){s.status='idle';s.events.push({type:'stopped',time:now(),message:'任务已停止。'});}
+     else if(result.code!==0){s.status='error';s.lastError=s.lastError||'Claude Code 进程已退出，请查看本轮记录后重试。';}
+     else s.status='idle';
+     s.metrics.durationMs=Math.max(s.metrics.durationMs,run.usageBase.durationMs+Date.now()-run.startedAt);
+    }
+    try{await store.save(s);}catch{console.error('Failed to persist completed session');}
+    await serverPlugins.exit({session:s,run,result:{...result,shutdown:shuttingDown}});
+   }finally{runs.delete(s.id);notify(s.id,true);resolveDone();}
+  }
+  try{
+   const cwd=path.join(workspaceRoot,s.id);
+   const extensionOptions=await serverPlugins.prepare({session:s,cwd,request:{...request,text},run});
+   if(!extensionOptions.configDir){const account=await monitor.auth().catch(()=>null);if(account&&account.loggedIn===false)throw new PluginError(409,'Claude Code 尚未登录。请先在服务器完成官方登录，再发送任务。');}
+   if(run.cancelRequested||shuttingDown)throw new PluginError(409,'任务启动已取消。');
+   staged=structuredClone({status:s.status,lastError:s.lastError,limitHit:s.limitHit,permissions:s.permissions,metrics:s.metrics,messages:s.messages,title:s.title,_requestIds:s._requestIds});
+   s.status='running';s.lastError=null;s.limitHit=null;s.permissions=[];s.metrics.turns++;s.metrics.userMessages++;
+   s.messages.push({id:randomUUID(),role:'user',text:text.trim(),createdAt:now()});
+   if(s.title==='新的对话')s.title=text.trim().replace(/\s+/g,' ').slice(0,32);
+   if(requestId)s._requestIds=[...(s._requestIds||[]),String(requestId).slice(0,80)].slice(-100);
+   await store.save(s);
+   if(run.cancelRequested||shuttingDown)throw new PluginError(409,'任务启动已取消。');
+   notify(s.id,true);
+   run.handle=runFactory({cwd,sessionId:s.claudeSessionId||undefined,model:s.model,effort:s.effort||'auto',permissionMode:s.permissionMode,prompt:text.trim(),binary,...extensionOptions,
+    onEvent:e=>{if(e.type==='quota'||e.type==='rate_limit')usage.observe?.(e);const before=feed.before(s,e,run);applyEvent(s,e,run);serverPlugins.event({session:s,event:e,run});store.schedule(s);if(!feed.after(s,e,run,before))notify(s.id,e.type==='permission');else legacyNotify(s.id);},
+    onExit:finish,
+   });
+   if(run.cancelRequested||shuttingDown)run.handle?.stop();
+   return {code:202};
+  }catch(error){
+   await finish({code:-1,preflightFailed:!run.handle,stopped:Boolean(run.cancelRequested||shuttingDown)});
+   if(error.status>=400&&error.status<500)return fail(error.status,error.message);
+   s.lastError='无法启动 Claude Code，请检查服务状态。';
+   return fail(503,s.lastError);
+  }
  }
  app.post('/api/sessions/:id/messages',async(req,res)=>{
  const s=req.session,text=req.body?.text,requestId=req.body?.requestId;
@@ -111,7 +149,7 @@ export async function createWorkbench(options={}){
  if(r.msg)return send(res,r.code,r.msg);
  res.status(202).json(sessionView(s));
  });
- app.post('/api/sessions/:id/stop',async(req,res)=>{const s=req.session,r=runs.get(s.id);if(r){r.cancelRequested=true;r.handle?.stop();}s.permissions=[];s.events.push({type:'stop_requested',time:now(),message:'正在停止任务…'});await store.save(s);notify(s.id,true);res.json(sessionView(s));});
+ app.post('/api/sessions/:id/stop',async(req,res)=>{const s=req.session,r=runs.get(s.id);if(r)r.cancelRequested=true;try{await serverPlugins.stop({session:s,run:r,reason:'user'});}finally{r?.handle?.stop();}s.permissions=[];s.events.push({type:'stop_requested',time:now(),message:'正在停止任务…'});await store.save(s);notify(s.id,true);res.json(sessionView(s));});
  app.post('/api/sessions/:id/permissions/:permissionId',async(req,res)=>{
  const s=req.session,r=runs.get(s.id),p=s.permissions.find(x=>x.id===req.params.permissionId);
  if(!r?.handle||!p)return send(res,409,'此审批已经处理或任务已结束。');
@@ -132,11 +170,12 @@ export async function createWorkbench(options={}){
  app.get('/api/sessions/:id/export',(req,res)=>{res.setHeader('Content-Disposition',`attachment; filename="claude-${req.session.id}.json"`);res.json(publicSession(req.session));});
  // Per-session totals for plugins with the sessions.read permission: summaries and counters only, never message content.
  app.get('/api/stats',(req,res)=>{const keys=['turns','toolCalls','inputTokens','outputTokens','cacheReadTokens','cacheWriteTokens','costUsd','durationMs','apiDurationMs','contextTokens','contextWindow'];res.json({generatedAt:now(),sessions:[...store.sessions.values()].map(s=>({...summary(s),metrics:Object.fromEntries(keys.map(k=>[k,typeof s.metrics?.[k]==='number'?s.metrics[k]:null]))}))});});
- const pluginRoute=handler=>async(req,res)=>{try{res.json(await handler(req));}catch(error){if(error instanceof PluginError)return send(res,error.status,error.message);throw error;}};
- app.get('/api/plugins',(req,res)=>res.json(plugins.list()));
- app.post('/api/plugins/rescan',pluginRoute(()=>plugins.lock(()=>plugins.scan())));
+ const pluginRoute=handler=>async(req,res)=>{try{res.json(await handler(req));}catch(error){if(error instanceof PluginError||(error.status>=400&&error.status<500))return send(res,error.status,error.message);throw error;}};
+ app.get('/api/plugins',(req,res)=>res.json(serverPlugins.list()));
+ app.post('/api/plugins/rescan',pluginRoute(()=>withExclusive(async()=>{await plugins.lock(()=>plugins.scan());await serverPlugins.reconcile();event({type:'runtime-updated'});return serverPlugins.list();})));
  app.post('/api/plugins/install',pluginRoute(req=>req.body?.workshopId!==undefined?plugins.installFromWorkshop(req.body.workshopId):plugins.install(req.body?.bundle,{source:'local'})));
- app.post('/api/plugins/:id/enable',pluginRoute(req=>plugins.setEnabled(req.params.id,req.body?.enabled,req.body?.granted)));
+ app.post('/api/plugins/:id/enable',pluginRoute(req=>withExclusive(async()=>{await plugins.setEnabled(req.params.id,req.body?.enabled,req.body?.granted);await serverPlugins.reconcile();event({type:'runtime-updated'});return serverPlugins.list();})));
+ app.post('/api/plugins/:id/backend',pluginRoute(req=>serverPlugins.call(req.params.id,req.body?.method,req.body?.params)));
  app.post('/api/plugins/:id/uninstall',pluginRoute(req=>plugins.uninstall(req.params.id)));
  app.get('/api/plugins/:id/storage',pluginRoute(async req=>({data:await plugins.readStorage(req.params.id)})));
  app.put('/api/plugins/:id/storage',pluginRoute(async req=>{await plugins.writeStorage(req.params.id,req.body?.data);return {ok:true};}));
@@ -166,8 +205,18 @@ export async function createWorkbench(options={}){
  app.get('/vendor/xterm-addon-fit.js',(req,res)=>res.sendFile(path.join(root,'node_modules/@xterm/addon-fit/lib/addon-fit.js')));
  app.use(express.static(path.join(root,'public'),{dotfiles:'deny',etag:true,maxAge:0}));
  app.use((err,req,res,next)=>{if(res.headersSent)return next(err);const status=err.type==='entity.too.large'?413:err instanceof SyntaxError?400:err.status>=400&&err.status<500?err.status:500;send(res,status,status===500?'服务暂时无法完成请求。':err.status?err.message:'请求内容无效或过大。');});
- async function close(){shuttingDown=true;for(const r of runs.values())r.cancelRequested=true;clearInterval(tick);for(const t of [...notices.values(),...legacyNotices.values()])clearTimeout(t);feed.close();for(const r of runs.values())r.handle?.stop();await terminals.close();await Promise.allSettled([...runs.values()].map(r=>r.handle?.done));await usage.close();for(const c of clients)c.res.end();await store.flush();}
- return {app,store,auth,runs,terminals,usage,monitor,plugins,close};
+ async function close(){
+  shuttingDown=true;
+  const pending=[...runs.entries()];
+  for(const [,r] of pending)r.cancelRequested=true;
+  for(const [id,r] of pending){try{await serverPlugins.stop({session:store.get(id),run:r,reason:'shutdown'});}finally{r.handle?.stop();}}
+  clearInterval(tick);for(const t of [...notices.values(),...legacyNotices.values()])clearTimeout(t);
+  feed.close();await terminals.close();
+  await Promise.allSettled(pending.map(([,r])=>r.done));
+  await serverPlugins.close();await usage.close();for(const c of clients)c.res.end();await store.flush();
+ }
+ await serverPlugins.init();
+ return {app,store,auth,runs,terminals,usage,monitor,plugins,serverPlugins,close};
 }
 if(process.argv[1]&&await fs.realpath(process.argv[1]).catch(()=>null)===fileURLToPath(import.meta.url)){
  process.umask(0o077);const wb=await createWorkbench().catch(error=>{console.error(error.message);process.exit(1);});const server=wb.app.listen(Number(process.env.PORT||17880),process.env.WORKBENCH_HOST||'127.0.0.1',()=>console.log('浮生氪劳德工作台已启动，监听本机回环地址'));
