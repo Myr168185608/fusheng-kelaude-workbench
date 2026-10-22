@@ -98,7 +98,7 @@ claude -p --verbose \
   --include-partial-messages \
   --permission-prompt-tool stdio \
   --permission-mode <bypassPermissions | manual | plan> \
-  --model <sonnet | opus | haiku> [--effort <level>] [--resume=<session-id>]
+  --model <opus | sonnet | fable | haiku | claude-…> [--effort <level>] [--resume=<session-id>]
 ```
 
 | 参数 | 作用 |
@@ -107,6 +107,7 @@ claude -p --verbose \
 | `--include-partial-messages` | 逐字输出思考与回复，网页上实时可见。 |
 | `--permission-prompt-tool stdio` | 工具权限请求经 stdio 交给工作台，按会话的权限模式自动处理或展示给用户。 |
 | `--permission-mode` | 对应「自动同意 / 逐次确认 / 只读计划」；新会话默认自动同意（`bypassPermissions`）。 |
+| `--model` | 模型别名或指定版本（如 `claude-opus-4-6`）。可选项取自 CLI 在 `initialize` 应答里报告的模型列表；参数只接受别名或 `claude-…` 形式，其他值不会启动 CLI。 |
 | `--resume=<id>` | 续接同一个 Claude 会话，下一轮对话保留完整上下文。 |
 
 一轮结束、CLI 进入空闲后，工作台关闭它的输入，进程自然退出。下一条消息会用 `--resume` 启动新进程续接上下文，所以服务器上没有常驻的 Claude 进程。
@@ -243,6 +244,7 @@ sequenceDiagram
 <WORKBENCH_DATA>/                  默认 ./data，目录权限 0700
 ├── auth.json                      登录口令的 scrypt 哈希（npm run set-password 生成）
 ├── web-sessions.json              浏览器登录状态（只保存令牌的 SHA-256 摘要）
+├── models.json                    CLI 最近报告的模型列表；插件指定的配置目录只记录哈希
 ├── sessions/
 │   └── <会话 ID>.json             对话记录、工具步骤、用量统计
 ├── plugins/                       已安装的插件与皮肤，以及开发中的插件，每个一个目录

@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { createAccountPool } from '../plugins/account-pool/server.mjs';
-import { quotaLoad, routeCandidates } from '../plugins/account-pool/routing.mjs';
+import { limitName, quotaLoad, routeCandidates } from '../plugins/account-pool/routing.mjs';
 
 const SESSION = 'cccccccc-cccc-4ccc-accc-cccccccccccc';
 const NATIVE = 'dddddddd-dddd-4ddd-addd-dddddddddddd';
@@ -127,6 +127,12 @@ test('quota routing uses all blocking windows, skips cooldowns and keeps unknown
   assert.equal(quotaLoad(account, { model: 'claude-sonnet-4-6', now: fixedNow }).load, 25);
   assert.equal(quotaLoad(account, { model: 'claude-opus-4-6', now: fixedNow }).load, 99);
   assert.equal(routeCandidates([account], { model: 'opus', below: 95, now: fixedNow }).length, 0);
+  const fable = { enabled: true, auth: { loggedIn: true }, usage: { sevenDay: { utilization: 20 }, scopes: [{ model: 'Fable', utilization: 97 }, { model: 'Opus', utilization: 30 }] } };
+  assert.equal(quotaLoad(fable, { model: 'fable', now: fixedNow }).load, 97, 'the Fable weekly meter gates Fable turns');
+  assert.equal(quotaLoad(fable, { model: 'claude-opus-4-6', now: fixedNow }).load, 30, 'pinned versions use their family meter');
+  assert.equal(limitName('seven_day_opus'), 'Opus 本周额度');
+  assert.equal(limitName('seven_day_fable'), 'Fable 本周额度');
+  assert.equal(limitName(null), '额度');
 });
 
 test('bindings are validated, pinned accounts never silently fail over, and unbinding restores policy', async t => {

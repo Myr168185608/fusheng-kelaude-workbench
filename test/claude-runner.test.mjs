@@ -170,6 +170,7 @@ test('real subprocess protocol preserves split UTF-8, initializes first, and ded
   assert.equal(exits.length, 1);
   assert.deepEqual(events.filter(e => e.type === 'text_delta').map(e => e.text), ['中文🙂']);
   assert.equal(events.filter(e => e.type === 'message').length, 1);
+  assert.equal(events.find(e => e.type === 'message').model, 'claude-sonnet-test', 'each reply carries the model that actually answered');
   assert.equal(events.filter(e => e.type === 'session').length, 1);
   const usage = events.filter(e => e.type === 'usage' && e.final);
   assert.equal(usage.length, 1);
@@ -318,6 +319,16 @@ test('permission approval cannot rewrite a shell command', async t => {
   } });
   runner = run;
   await run.done;
+});
+
+test('Fable and pinned versions reach the CLI; malformed model values never start it', async t => {
+  for (const model of ['fable', 'claude-opus-4-6']) {
+    const { run, cwd } = await setup(t, 'normal', { model });
+    await run.done;
+    const record = JSON.parse(await readFile(join(cwd, 'record.json'), 'utf8'));
+    assert.equal(record.args[record.args.indexOf('--model') + 1], model);
+  }
+  await assert.rejects(setup(t, 'normal', { model: '--dangerously-skip-permissions' }));
 });
 
 test('effort is an official CLI flag and the documented haiku alias is accepted', async t => {

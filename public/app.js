@@ -34,7 +34,7 @@ const icons = {
   memory: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 18v3M12 18v3M17 18v3M7 10v4M12 10v4M17 10v4"/>',
   disk: '<path d="m5 4-3 9v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5l-3-9H5ZM2 13h20M6 17h.01M10 17h.01"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>', 'wifi-off': '<path d="m2 2 20 20M8.5 16.5a5 5 0 0 1 7 0M12 20h.01M5 13a10 10 0 0 1 5-2.8M16.8 12a10 10 0 0 1 2.2 1M2 9a16 16 0 0 1 4.2-2.5M10.5 5.1A16 16 0 0 1 22 9"/>',
-  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>', 'list-check': '<path d="M11 6h9M11 12h9M11 18h9M3.5 6l1.5 1.5L8 4.5M3.5 12l1.5 1.5L8 10.5M3.5 18l1.5 1.5L8 16.5"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>', 'list-check': '<path d="M11 6h9M11 12h9M11 18h9M3.5 6l1.5 1.5L8 4.5M3.5 12l1.5 1.5L8 10.5M3.5 18l1.5 1.5L8 16.5"/>', list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/>', steps: '<path d="M6 8.5v7"/><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M12 6h8M12 18h8M12 12h5"/>',
   plug: '<path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0V7ZM12 17v5"/>', bell: '<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4"/>', alert: '<path d="M12 3 2 20h20L12 3ZM12 10v4M12 17h.01"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>', 'message-plus': '<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12Z"/><path d="M12 8.5v7M8.5 12h7"/>',
   'chevron-right': '<path d="m9 6 6 6-6 6"/>', ban: '<circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/>', reply: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>',
@@ -49,6 +49,8 @@ const ide = { usage: null, workspaceOpen: false, directory: '', explorer: 'files
 // View state that survives live re-renders: keyed transcript rows, streaming reveal and scroll-follow state,
 // expanded activities/steps, loaded full tool records, sync timers.
 const ui = { renderedFor: null, items: new Map(), pending: new Set(), reveal: new Map(), fresh: new Set(), patchLog: [], entryGroups: new Map(), stuck: true, pointerDown: false, touching: false, autoScrollTop: null, lastScrollTop: 0, skew: 0, lastProgressAt: 0, raf: 0, lastFrameAt: 0, renderPending: false, resyncTimer: null, monitorTimer: null, openGroups: new Set(), openSteps: new Set(), openThinking: new Set(), closedThinking: new Set(), fullTools: new Map(), loadingTools: new Set(), unseen: false, activeDocBySession: new Map(), usageKey: '', usageCollapsed: storage.get('cloud-ops-workbench-usage-collapsed') === '1', notify: storage.get('cloud-ops-workbench-notify') === '1', attention: null, favicon: '', syncTimer: null, syncPaths: null, syncAll: false, todoOpen: false, noticesHTML: '', effortHTML: '', sessionsHTML: '' };
+// Steps live in the activity panel by default; the transcript keeps one summary row per stretch of work.
+Object.assign(ui, { stepsInline: storage.get('cloud-ops-workbench-steps') === 'inline', activityPref: storage.get('cloud-ops-workbench-activity'), activityOpen: false, activitySuspended: false, activityTab: 'steps', activityFor: null, activityItems: new Map(), activityStuck: true, activityTimer: 0, openTurns: new Set(), closedTurns: new Set(), openFiles: new Set(), panelThinking: new Set() });
 const nf = new Intl.NumberFormat('zh-CN');
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 const formatNumber = value => finite(value) ? nf.format(value) : '未提供';
@@ -61,6 +63,8 @@ const time = value => dateValue(value) ? new Date(value).toLocaleTimeString('zh-
 const escape = text => String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const jsonText = value => { if (typeof value === 'string') return value; try { return JSON.stringify(value, null, 2) ?? ''; } catch { return String(value); } };
 const oneLine = value => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 180);
+// One-line preview of a markdown reply: headings, list marks, emphasis, code fences and link targets removed.
+const plainLine = value => oneLine(String(value ?? '').replace(/```[^\n]*\n?/g, ' ').replace(/^\s{0,3}(?:#{1,6}|[-*+>]|\d+[.)])\s+/gm, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/(\*\*|__|`)/g, '').replace(/^\s*\|?[-:| ]+\|?\s*$/gm, ' '));
 const running = session => ['running', 'awaiting_approval', 'stopping'].includes(session?.status);
 const activeDraftKey = () => `cloud-ops-workbench-draft:${state.activeId || 'new'}`;
 const isDirectory = entry => ['directory', 'dir'].includes(entry?.type);
@@ -111,6 +115,7 @@ async function showApp(auth) {
   plugins.load().then(renderSafeBanner, error => toast(`插件暂时没有加载：${error.message}`, true));
   $('#boot').hidden = true; $('#login-view').hidden = true; $('#app').hidden = false;
   $('#login-password').value = ''; $('#login-totp').value = '';
+  ui.activityOpen = ui.activityPref === 'open' || (ui.activityPref == null && innerWidth >= 1280); layoutActivity();
   const storedId = storage.get('cloud-ops-workbench-active');
   const initial = state.sessions.find(s => s.id === storedId && !s.archived) || state.sessions.find(s => !s.archived);
   if (initial) await selectSession(initial.id); else newSessionView();
@@ -161,6 +166,7 @@ function connectEvents() {
     if (data.type === 'runtime-updated') refreshBootstrap().catch(() => {});
     if (data.type === 'system') { state.system = data.system; renderServer(); plugins.system(); }
     if (data.type === 'usage') { ide.usage = data.usage; renderUsage(); renderNotices(); plugins.usage(); }
+    if (data.type === 'models' && Array.isArray(data.models)) { state.config.models = data.models; configureEffort(); }
     if (data.type === 'terminal-updated' || data.type === 'terminal' || data.type === 'terminals') refreshTerminals().catch(() => {});
     if (data.type === 'session-updated') { if (data.summary) applySummary(data.summary); scheduleSnapshot(data.sessionId, Boolean(data.summary)); }
   };
@@ -205,7 +211,7 @@ function acceptSession(session) {
   const { messages, tools, events, permissions, tasks, metrics, capabilities, ...summary } = session;
   if (index < 0) state.sessions.unshift(summary); else state.sessions[index] = { ...state.sessions[index], ...summary };
   $('#current-title').textContent = session.title || '未命名会话';
-  $('#model-select').value = session.model || 'sonnet';
+  renderModelOptions(session.model || 'sonnet');
   $('#mode-select').value = session.permissionMode || 'bypassPermissions';
   configureEffort(session.effort || 'auto'); renderUsage();
   renderTitleMeta();
@@ -219,9 +225,9 @@ function newSessionView() {
   preserveDraft(); state.selectionVersion++; state.activeId = null; state.session = null; ui.renderedFor = null; resetLive();
   storage.set('cloud-ops-workbench-active', ''); $('#current-title').textContent = '新会话';
   syncAccountSelection(); renderUsage();
-  $('#model-select').value = 'sonnet'; $('#mode-select').value = 'bypassPermissions';
-  configureEffort('auto'); ide.directory = ''; ide.activeDocument = null; renderEditor(); renderAttachments(); renderTitleMeta(); if (ide.workspaceOpen) loadDirectory().catch(() => {});
-  renderSessions(); renderMessages(); renderMonitor(); renderTodos(); loadDraft(); closeSidebar(); switchView('chat'); plugins.activeChanged();
+  renderModelOptions(storage.get('cloud-ops-workbench-model') || 'sonnet'); $('#mode-select').value = 'bypassPermissions';
+  configureEffort(storage.get('cloud-ops-workbench-effort') || 'auto'); ide.directory = ''; ide.activeDocument = null; renderEditor(); renderAttachments(); renderTitleMeta(); if (ide.workspaceOpen) loadDirectory().catch(() => {});
+  renderSessions(); renderMessages(); renderActivity(); renderMonitor(); renderTodos(); loadDraft(); closeSidebar(); switchView('chat'); plugins.activeChanged();
   $('#message-input').focus();
 }
 async function selectSession(id) {
@@ -233,7 +239,7 @@ async function selectSession(id) {
   ide.directory = ''; ide.activeDocument = remembered && ide.documents.has(remembered) ? remembered : null; renderEditor(); renderAttachments(); renderTodos();
   $('#current-title').textContent = state.sessions.find(s => s.id === id)?.title || '正在载入'; renderTitleMeta();
   $('#messages').innerHTML = '<div class="empty-card loading-card"><span class="working-pulse"></span><p>正在恢复这段对话</p></div>';
-  updateControls();
+  renderActivity(); updateControls();
   try { await refreshSession(); ui.stuck = true; stickToBottom(); if (ide.workspaceOpen) await loadDirectory(); }
   catch (error) { if (id === state.activeId) { $('#messages').innerHTML = `<div class="empty-card"><strong>暂时无法载入会话</strong><p>${escape(error.message)}</p></div>`; toast(error.message, true); } }
 }
@@ -449,6 +455,10 @@ function permissionMarkup(permission) {
   return `<div class="approval-card${tone}" data-permission-id="${escape(permission.id)}"><div class="approval-top"><span class="approval-icon">${icon(info.icon)}</span><div><strong>${escape(title)}</strong><small>需要你的确认 · ${escape(name)}</small></div></div>${body}${raw}<div class="approval-actions"><button type="button" data-allow="false">${deny}</button><button type="button" class="allow" data-allow="true">${allow}</button></div></div>`;
 }
 const taskStatusText = { running: '执行中', completed: '已完成', failed: '失败', stopped: '已停止' };
+async function stopTask(id) {
+  const task = state.session?.tasks?.find(t => t.id === id && t.status === 'running'); if (!task) return;
+  try { await api(sessionApi(`tasks/${encodeURIComponent(task.id)}/stop`), { method: 'POST', body: {} }); await refreshSession(); } catch (error) { toast(error.message, true); }
+}
 const taskMarkup = task => `<div class="task-item ${escape(task.status || '')}"><span class="task-icon">${task.status === 'running' ? '<span class="spinner"></span>' : icon(task.status === 'completed' ? 'check' : task.status === 'failed' ? 'close' : 'layers')}</span><div><strong>${escape(task.description || task.name || task.id)}</strong><small>${escape(taskStatusText[task.status] || '已记录')}${task.summary ? ` · ${escape(oneLine(task.summary))}` : ''}</small></div>${task.status === 'running' ? `<button type="button" data-task-stop="${escape(task.id)}">停止子任务</button>` : ''}</div>`;
 function currentActivity(session) {
   if (session?.status === 'awaiting_approval') return '等待你的确认';
@@ -459,9 +469,10 @@ function currentActivity(session) {
   const messages = session?.messages || [], reply = messages.slice(messages.findLastIndex(m => m.role === 'user') + 1).findLast(m => m.role === 'assistant');
   return reply?.text?.trim() && dateValue(reply.createdAt) >= dateValue(tools.at(-1)?.createdAt) ? '正在回复' : '正在思考';
 }
-// One assistant turn reads as: header, a timeline of thinking and tool steps, the reply, a footer.
-// Steps between two replies form one activity; once the reply moves past it, it folds into a summary row.
-function chatItems(session) {
+// Messages and tool records in time order, cut into blocks: user and system messages, reply texts, and
+// activities (the thinking and tool steps between two replies). The transcript and the activity panel share these.
+const entryKey = entry => entry.tool ? `s:${entry.tool.id}` : `k:${entry.m.id}`;
+function sessionBlocks(session) {
   const messages = Array.isArray(session?.messages) ? session.messages : [], tools = Array.isArray(session?.tools) ? session.tools : [];
   const ordered = [...messages.map((value, index) => ({ kind: 'message', value, index, date: dateValue(value.createdAt) })), ...tools.map((value, index) => ({ kind: 'tool', value, index, date: dateValue(value.createdAt) }))];
   ordered.sort((a, b) => a.date && b.date ? a.date - b.date || (a.kind === b.kind ? a.index - b.index : a.kind === 'message' ? -1 : 1) : a.kind === b.kind ? a.index - b.index : a.kind === 'message' ? -1 : 1);
@@ -473,19 +484,43 @@ function chatItems(session) {
     if (hasThinking(value)) step({ m: value });
     if ((value.text || '').trim()) { blocks.push({ type: 'text', m: value }); activity = null; }
   }
+  for (const block of blocks) if (block.type === 'activity') block.key = `a:${entryKey(block.entries[0])}`;
+  return blocks;
+}
+// File edits in a set of tool records: distinct paths and added / removed lines.
+function changeStats(tools) {
+  const files = new Set(); let add = 0, del = 0;
+  for (const t of tools) { if (!fileTools.has(t.name) || failStatuses.has(t.status) || t.status === 'preparing') continue; files.add(toolPath(t) || t.id); const stats = editStats(t); if (stats) { add += stats.add; del += stats.del; } }
+  return { files: files.size, add, del };
+}
+// A stretch of tool work collapses to one transcript row; its steps are listed in the activity panel.
+function activityItem(block, entries, live) {
+  const tools = entries.filter(e => e.tool).map(e => e.tool), summary = activitySummary(entries), stats = changeStats(tools);
+  const active = tools.findLast(t => activeStatuses.has(t.status)), last = entries.at(-1);
+  const thinking = live && last.m && last.m.thinkingStartedAt && !last.m.thinkingEndedAt ? last.m : null;
+  const since = entries[0].tool?.createdAt || entries[0].m?.thinkingStartedAt || entries[0].m?.createdAt;
+  const title = !live ? summary.title : active ? `${['waiting_permission', 'awaiting_approval'].includes(active.status) ? '等待确认' : `正在${toolInfo(active.name).verb}`} ${toolSubject(active).text}`.trim() : thinking ? '正在思考' : '继续处理中';
+  const meta = live ? `第 ${entries.length} 步${dateValue(since) ? ` · <span data-since="${escape(since)}">${clockText(serverNow() - dateValue(since))}</span>` : ''}` : summary.meta;
+  return { kind: 'activity', key: block.key, live, cls: live ? 'run' : summary.cls, title, meta, thinking, ...stats };
+}
+// One assistant turn reads as: header, a timeline of thinking and tool steps, the reply, a footer.
+// Steps between two replies form one activity; once the reply moves past it, it folds into a summary row.
+function chatItems(session) {
+  const blocks = sessionBlocks(session), compactMode = !ui.stepsInline;
   const live = running(session), lastUser = blocks.findLastIndex(b => b.type === 'user'), items = [];
-  const entryKey = entry => entry.tool ? `s:${entry.tool.id}` : `k:${entry.m.id}`;
-  let turn = 'start', head = null, texts = 0; ui.entryGroups = new Map();
+  let turn = 'start', head = null, texts = 0, asked = null; ui.entryGroups = new Map();
   const closeTurn = () => { if (head && texts && !head.live) items.push({ kind: 'foot', key: `f:${turn}`, turn }); };
+  const noteModel = m => { if (head && !head.model && m?.model) head.model = m.model; };
   blocks.forEach((block, index) => {
-    if (block.type === 'user') { closeTurn(); items.push({ kind: 'user', key: `m:${block.m.id}`, m: block.m }); turn = block.m.id; head = null; texts = 0; return; }
+    if (block.type === 'user') { closeTurn(); items.push({ kind: 'user', key: `m:${block.m.id}`, m: block.m }); turn = block.m.id; head = null; texts = 0; asked = block.m.resolvedModel || (block.m.model ? resolvedOf(block.m.model) : null); return; }
     if (block.type === 'system') { items.push({ kind: 'system', key: `m:${block.m.id}`, m: block.m }); return; }
     const turnLive = live && index > lastUser, last = index === blocks.length - 1, first = block.m || block.entries[0].tool || block.entries[0].m;
-    if (!head) items.push(head = { kind: 'head', key: `h:${turn}`, at: first.createdAt, live: turnLive });
-    if (block.type === 'text') { texts++; items.push({ kind: 'text', key: `t:${block.m.id}`, m: block.m, live: turnLive && last }); return; }
-    const entries = compactSteps(block.entries), key = `a:${entryKey(block.entries[0])}`;
+    if (!head) items.push(head = { kind: 'head', key: `h:${turn}`, at: first.createdAt, live: turnLive, asked, model: null });
+    if (block.type === 'text') { texts++; noteModel(block.m); items.push({ kind: 'text', key: `t:${block.m.id}`, m: block.m, live: turnLive && last }); return; }
+    const entries = compactSteps(block.entries), key = block.key;
     const activityLive = (turnLive && last) || entries.some(e => e.tool && activeStatuses.has(e.tool.status));
-    for (const entry of block.entries) ui.entryGroups.set(entryKey(entry), key);
+    for (const entry of block.entries) { ui.entryGroups.set(entryKey(entry), key); noteModel(entry.m); }
+    if (compactMode && entries.some(e => e.tool)) { items.push(activityItem(block, entries, activityLive)); return; }
     const grouped = !activityLive && entries.length > 1, open = !grouped || ui.openGroups.has(key);
     if (grouped) items.push({ kind: 'group', key, open, ...activitySummary(entries) });
     if (open) entries.forEach((entry, i) => items.push(entry.tool ? { kind: 'tool', key: `s:${entry.tool.id}`, tool: entry.tool, open: ui.openSteps.has(entry.tool.id) } : thinkingItem(entry.m, turnLive, activityLive && i === entries.length - 1)));
@@ -494,22 +529,31 @@ function chatItems(session) {
   const permissions = (session?.permissions || []).filter(p => !p.status || ['pending', 'awaiting_approval'].includes(p.status));
   // The working row covers silent gaps only: between steps, before the first token, or a reply that has paused.
   const current = items.slice(items.findLastIndex(item => item.kind === 'user') + 1);
-  if (live && !permissions.length && !current.some(item => (item.kind === 'tool' && activeStatuses.has(item.tool.status)) || (item.kind === 'thinking' && item.live)) && (items.at(-1)?.kind !== 'text' || performance.now() - ui.lastProgressAt > 1500)) {
+  if (live && !permissions.length && !current.some(item => (item.kind === 'tool' && activeStatuses.has(item.tool.status)) || ((item.kind === 'thinking' || item.kind === 'activity') && item.live)) && (items.at(-1)?.kind !== 'text' || performance.now() - ui.lastProgressAt > 1500)) {
     const label = session.status === 'stopping' ? '正在停止…' : head ? '继续处理中' : '正在思考';
     if (!head) items.push(head = { kind: 'head', key: `h:${turn}`, at: null, live: true });
     items.push({ kind: 'working', key: 'working', label });
   }
-  if (live && session.tasks?.length) items.push({ kind: 'tasks', key: 'tasks', tasks: session.tasks });
+  const runningTasks = live && ui.stepsInline ? (session.tasks || []).filter(t => t.status === 'running') : [];
+  if (runningTasks.length) items.push({ kind: 'tasks', key: 'tasks', tasks: runningTasks });
   if (permissions.length) items.push({ kind: 'permissions', key: 'permissions', permissions });
   const error = session?.lastError || session?.error;
   if (error) items.push({ kind: 'error', key: 'error', error: typeof error === 'string' ? error : error.message || jsonText(error) });
   return items;
 }
+// The model that answered a turn, flagged when it is not the one that was asked for (no access, overload fallback).
+function turnModelMarkup(item) {
+  if (!item.model) return '';
+  const mismatch = item.asked && item.asked !== item.model;
+  const title = mismatch ? `所选 ${modelName(item.asked)}（${item.asked}），Claude Code 实际使用 ${modelName(item.model)}（${item.model}）` : `本轮由 ${item.model} 回复`;
+  return `<span class="turn-model${mismatch ? ' mismatch' : ''}" title="${escape(title)}">${mismatch ? icon('alert') : ''}${escape(modelName(item.model))}</span>`;
+}
 const messageSigs = new WeakMap();
 function rowSig(item) {
   switch (item.kind) {
     case 'user': case 'system': { let sig = messageSigs.get(item.m); if (sig === undefined) { sig = JSON.stringify([item.m.text, item.m.createdAt]); messageSigs.set(item.m, sig); } return sig; }
-    case 'head': return `h|${item.at ? time(item.at) : ''}`;
+    case 'head': return `h|${item.at ? time(item.at) : ''}|${item.model || ''}|${item.asked || ''}`;
+    case 'activity': return `v|${item.cls}|${item.live}|${item.title}|${item.meta.replace(/<span data-since[^>]*>[^<]*<\/span>/, '')}|${item.add}|${item.del}|${Boolean(item.thinking)}`;
     case 'thinking': return `k|${item.open}|${item.expandable}|${Boolean(item.m.thinkingRedacted)}`;
     case 'tool': return `s|${toolSig(item.tool)}|${item.open}|${ui.fullTools.has(item.tool.id)}|${ui.loadingTools.has(item.tool.id)}`;
     case 'group': return `a|${item.open}|${item.cls}|${item.title}|${item.meta}`;
@@ -528,6 +572,7 @@ function rowClass(item) {
     case 'thinking': return `message a-row flow-row think-row${item.live ? ' live' : ''}${item.open ? ' open' : ''}`;
     case 'tool': return `message a-row flow-row step-row ${stepState(item.tool.status).cls}${item.open ? ' open' : ''}`;
     case 'group': return `message a-row flow-row group-row ${item.cls}${item.open ? ' open' : ''}`;
+    case 'activity': return `message a-row flow-row group-row activity-row ${item.cls}${item.live ? ' live' : ''}`;
     case 'working': return 'message a-row flow-row working-row';
     case 'foot': return 'message a-row turn-foot';
     case 'permissions': return 'message a-row approvals';
@@ -539,7 +584,8 @@ function rowMarkup(item) {
   switch (item.kind) {
     case 'user': return userMarkup(item.m);
     case 'system': return escape(item.m.text || '');
-    case 'head': return `<span class="assistant-avatar">${assistantMark}</span><strong>Claude</strong>${item.at ? `<time>${escape(time(item.at))}</time>` : ''}`;
+    case 'head': return `<span class="assistant-avatar">${assistantMark}</span><strong>Claude</strong>${turnModelMarkup(item)}${item.at ? `<time>${escape(time(item.at))}</time>` : ''}`;
+    case 'activity': return activityRowMarkup(item);
     case 'text': return '<div class="message-body"></div>';
     case 'thinking': return thinkingMarkup(item);
     case 'tool': return toolMarkup(item);
@@ -572,6 +618,7 @@ function syncRow(item, el) {
     return deferred || pending;
   }
   if (item.kind === 'working') { const label = el.querySelector('.flow-verb'); if (label.textContent !== item.label) label.textContent = item.label; }
+  if (item.kind === 'activity') { const peek = el.querySelector('.activity-peek'); if (peek) { const text = item.thinking ? thinkingText(item.thinking).replace(/\s+/g, ' ').trim().slice(-160) : ''; if (peek.textContent !== text) peek.textContent = text; peek.hidden = !text; } }
   return false;
 }
 // Smooth typing: the visible prefix eases toward the received text, so bursty chunks read as a steady
@@ -683,7 +730,7 @@ function renderMessages() {
   ui.renderPending = false;
   if (!session || (!messages.length && !tools.length && !(session.permissions || []).length)) {
     if (!container.querySelector(':scope > #welcome')) container.innerHTML = welcomeHTML;
-    ui.renderedFor = null; ui.items = new Map(); ui.pending.clear(); updateScrollButton(); return false;
+    ui.renderedFor = null; ui.items = new Map(); ui.pending.clear(); updateScrollButton(); scheduleActivity(); return false;
   }
   const first = ui.renderedFor !== session.id;
   if (first) { container.replaceChildren(); ui.renderedFor = session.id; ui.unseen = false; }
@@ -708,7 +755,7 @@ function renderMessages() {
   for (const el of existing.values()) el.remove();
   if (!reduceMotion.matches) for (const row of appeared) row.animate?.([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)' });
   if (ui.stuck) stickToBottom(); else if (added || busy) ui.unseen = true;
-  updateScrollButton();
+  updateScrollButton(); scheduleActivity();
   if (busy) requestFrame();
   return busy;
 }
@@ -772,7 +819,7 @@ function linkPaths(container) {
 }
 /* Live patches: streaming arrives as small ordered `session-patch` frames (lib/live.mjs). A frame
    applies only on top of the seq it follows; a gap or a server restart falls back to one snapshot. */
-const metaKeys = ['role', 'createdAt', 'thinkingStartedAt', 'thinkingEndedAt', 'thinkingTokens', 'thinkingRedacted'];
+const metaKeys = ['role', 'createdAt', 'thinkingStartedAt', 'thinkingEndedAt', 'thinkingTokens', 'thinkingRedacted', 'model'];
 function applyPatch(session, frame) {
   const messages = session.messages ||= [], tools = session.tools ||= [], changed = { tools: false, todos: false, metrics: false };
   for (const op of frame.ops || []) {
@@ -837,10 +884,10 @@ function turnText(turn) {
 }
 async function loadFullTool(id) {
   const sessionId = state.activeId; if (!sessionId || ui.loadingTools.has(id)) return;
-  ui.loadingTools.add(id); renderMessages();
+  ui.loadingTools.add(id); renderMessages(); renderActivity();
   try { const record = await api(sessionApi(`tools/${encodeURIComponent(id)}`, sessionId)); ui.fullTools.set(id, record); if (ui.fullTools.size > 40) ui.fullTools.delete(ui.fullTools.keys().next().value); }
   catch (error) { toast(error.message, true); }
-  finally { ui.loadingTools.delete(id); if (sessionId === state.activeId) renderMessages(); }
+  finally { ui.loadingTools.delete(id); if (sessionId === state.activeId) { renderMessages(); renderActivity(); } }
 }
 // Expanding a step while its activity is live keeps that activity expanded after it folds.
 function keepGroupOpen(entryKey) { const group = ui.entryGroups.get(entryKey); if (group) ui.openGroups.add(group); }
@@ -853,11 +900,218 @@ function toggleRow(control, change) {
 }
 function jumpToTool(id) {
   switchView('chat'); if (!state.session) return;
+  if (!ui.stepsInline) { revealInActivity({ tool: id }); return; }
   chatItems(state.session); if (!ui.entryGroups.has(`s:${id}`)) return;
   keepGroupOpen(`s:${id}`); ui.openSteps.add(id); ui.stuck = false; renderMessages();
   requestAnimationFrame(() => { const el = (ui.items.get(`s:${id}`) || ui.items.get(ui.entryGroups.get(`s:${id}`)))?.el; if (!el?.isConnected) return; el.scrollIntoView({ block: 'center', behavior: 'smooth' }); const flash = cssToHex('var(--amber-soft)', '#fdf3d8'); el.animate?.([{ backgroundColor: flash }, { backgroundColor: flash, offset: .3 }, { backgroundColor: 'transparent' }], { duration: 1800, easing: 'ease-out' }); });
 }
 function emptyMarkup(symbol, title, description) { return `<div class="empty-card">${icon(symbol)}<strong>${escape(title)}</strong><p>${escape(description)}</p></div>`; }
+
+/* ---------- Activity panel: every step and file change, outside the transcript ---------- */
+function activityRowMarkup(item) {
+  const stats = item.add || item.del ? `<span class="step-stats"><b>+${item.add}</b>${item.del ? `<i>−${item.del}</i>` : ''}</span>` : '';
+  return `<button type="button" class="flow-head" data-open-activity="${escape(item.key)}" title="在右侧「执行过程」查看每一步"><span class="flow-dot" aria-hidden="true">${dotMark(item.cls, 'layers')}</span><span class="flow-verb">${escape(item.title)}</span>${stats}<span class="flow-meta">${item.meta}</span><span class="activity-link">${icon('panel')}<span>详情</span></span></button>${item.live ? '<p class="activity-peek" hidden></p>' : ''}`;
+}
+const narrowLayout = () => matchMedia('(max-width: 1100px)').matches;
+const activityVisible = () => ui.activityOpen && !ui.activitySuspended;
+// Turns of the session with what Claude did in each: the activities (steps) and the replies between them.
+function activityTurns(session) {
+  const turns = []; let turn = null, number = 0;
+  for (const block of sessionBlocks(session)) {
+    if (block.type === 'user') { turns.push(turn = { id: block.m.id, m: block.m, number: ++number, seq: [] }); continue; }
+    if (block.type === 'system') continue;
+    if (!turn) turns.push(turn = { id: 'start', m: null, number: 0, seq: [] });
+    turn.seq.push(block.type === 'activity' ? { type: 'activity', key: block.key, entries: compactSteps(block.entries) } : { type: 'reply', m: block.m });
+  }
+  for (const t of turns) { t.activities = t.seq.filter(x => x.type === 'activity'); t.tools = t.activities.flatMap(a => a.entries.filter(e => e.tool).map(e => e.tool)); }
+  return turns.filter(t => t.activities.length);
+}
+function fileChanges(session) {
+  const files = new Map(), turnOf = new Map();
+  for (const t of activityTurns(session)) for (const tool of t.tools) turnOf.set(tool.id, t.number);
+  for (const t of session?.tools || []) {
+    const path = toolPath(t); if (!fileTools.has(t.name) || !path || t.status === 'preparing') continue;
+    const entry = files.get(path) || { path, rel: relPath(path), name: path.split('/').filter(Boolean).at(-1) || path, ops: [], add: 0, del: 0, failed: 0, created: t.name === 'Write' };
+    const stats = failStatuses.has(t.status) ? null : editStats(t); if (stats) { entry.add += stats.add; entry.del += stats.del; }
+    if (failStatuses.has(t.status) || t.status === 'denied') entry.failed++;
+    entry.ops.push(t); entry.at = t.createdAt; entry.turn = turnOf.get(t.id); files.set(path, entry);
+  }
+  return [...files.values()].sort((a, b) => dateValue(b.at) - dateValue(a.at));
+}
+function panelThinkingMarkup(item) {
+  const m = item.m, label = thinkingLabel(m, item.live), expandable = Boolean(thinkingText(m).trim() || m.thinkingRedacted), meta = finite(m.thinkingTokens) && m.thinkingTokens > 0 ? `约 ${compact(m.thinkingTokens)} tokens` : '';
+  const head = `<span class="flow-dot" aria-hidden="true">${icon('brain')}</span><span class="flow-verb think-label">${escape(label)}</span><span class="flow-meta">${escape(meta)}</span>${expandable ? `<span class="flow-chevron">${icon('chevron-right')}</span>` : ''}`;
+  return `${expandable ? `<button type="button" class="flow-head" data-toggle-pthinking="${escape(m.id)}" aria-expanded="${item.open}">${head}</button>` : `<div class="flow-head">${head}</div>`}${item.open ? `<div class="flow-body thinking-body"><div class="thinking-text message-body">${safeMarkdown(thinkingText(m))}</div>${m.thinkingRedacted ? '<p class="thinking-note">部分思考内容已由官方加密，无法显示。</p>' : ''}</div>` : ''}`;
+}
+function activityPanelItems(session) {
+  const items = [], live = running(session);
+  if (ui.activityTab === 'files') {
+    const files = fileChanges(session);
+    for (const f of files) {
+      const open = ui.openFiles.has(f.path);
+      items.push({ kind: 'file', key: `pf:${f.path}`, f, open });
+      if (open) for (const t of [...f.ops].reverse()) items.push({ kind: 'tool', key: `pfs:${t.id}`, tool: t, open: ui.openSteps.has(t.id) });
+    }
+    return { items, empty: ['files', '还没有文件变更', 'Claude 写入或编辑文件后，会按文件汇总在这里，可展开看每次修改的差异。'] };
+  }
+  const turns = activityTurns(session), latest = turns.at(-1)?.id;
+  // The CLI also reports long Bash commands as background tasks; those already appear as steps.
+  const toolIds = new Set((session.tools || []).map(t => t.id)), tasks = session.tasks || [];
+  const busyTasks = live ? tasks.filter(t => t.status === 'running') : [];
+  if (busyTasks.length) { items.push({ kind: 'tasks-head', key: 'pq-head', count: busyTasks.length }); busyTasks.forEach(task => items.push({ kind: 'task', key: `pq:${task.id}`, task })); }
+  const looseTasks = new Map();
+  for (const task of tasks) {
+    if (task.status === 'running' || toolIds.has(task.toolUseId)) continue;
+    const at = dateValue(task.createdAt), turn = turns.findLast(t => !t.m || dateValue(t.m.createdAt) <= at) || turns[0];
+    if (turn) looseTasks.set(turn.id, [...(looseTasks.get(turn.id) || []), task]);
+  }
+  for (const t of turns) {
+    const turnLive = live && t.id === latest, open = ui.openTurns.has(t.id) || (!ui.closedTurns.has(t.id) && (t.id === latest || turnLive));
+    items.push({ kind: 'turn', key: `pt:${t.id}`, t, open, live: turnLive, ...changeStats(t.tools) });
+    if (!open) continue;
+    t.seq.forEach((x, i) => {
+      if (x.type === 'reply') { items.push({ kind: 'reply', key: `pr:${x.m.id}`, m: x.m }); return; }
+      const activityLive = (turnLive && i === t.seq.length - 1) || x.entries.some(e => e.tool && activeStatuses.has(e.tool.status));
+      if (t.activities.length > 1) items.push({ kind: 'block', key: `pb:${x.key}`, block: x.key, ...activitySummary(x.entries) });
+      x.entries.forEach((e, n) => items.push(e.tool ? { kind: 'tool', key: `ps:${e.tool.id}`, tool: e.tool, open: ui.openSteps.has(e.tool.id), anchor: n === 0 ? x.key : null }
+        : { kind: 'pthinking', key: `pk:${e.m.id}`, m: e.m, live: activityLive && n === x.entries.length - 1 && Boolean(e.m.thinkingStartedAt) && !e.m.thinkingEndedAt, open: ui.panelThinking.has(e.m.id), anchor: n === 0 ? x.key : null }));
+    });
+    for (const task of looseTasks.get(t.id) || []) items.push({ kind: 'task', key: `pq:${task.id}`, task });
+  }
+  return { items, empty: ['steps', '工作开始后，每一步都在这里', 'Claude 运行命令、读写文件时，步骤按轮次列在这里；对话区只保留一行摘要，阅读不受打扰。'] };
+}
+function activitySig(item) {
+  switch (item.kind) {
+    case 'turn': return `t|${item.open}|${item.live}|${item.t.tools.length}|${item.files}|${item.add}|${item.del}|${item.t.m?.text?.length || 0}`;
+    case 'block': return `b|${item.cls}|${item.title}|${item.meta}`;
+    case 'reply': return `r|${plainLine(item.m.text).slice(0, 120)}`;
+    case 'pthinking': return `k|${item.open}|${item.live}|${thinkingLabel(item.m, item.live)}|${item.m.thinkingTokens || 0}|${item.open ? thinkingText(item.m).length : 0}`;
+    case 'tool': return `s|${toolSig(item.tool)}|${item.open}|${ui.fullTools.has(item.tool.id)}|${ui.loadingTools.has(item.tool.id)}`;
+    case 'file': return `f|${item.open}|${item.f.ops.length}|${item.f.add}|${item.f.del}|${item.f.failed}|${item.f.at}`;
+    case 'tasks-head': return `q|${item.count}`;
+    case 'task': return `q|${item.task.status}|${item.task.description}|${item.task.summary}`;
+    default: return item.kind;
+  }
+}
+function activityClass(item) {
+  switch (item.kind) {
+    case 'turn': return `activity-turn${item.open ? ' open' : ''}${item.live ? ' live' : ''}`;
+    case 'block': return `activity-block ${item.cls}`;
+    case 'reply': return 'activity-reply';
+    case 'pthinking': return `a-row flow-row think-row${item.live ? ' live' : ''}${item.open ? ' open' : ''}`;
+    case 'tool': return `a-row flow-row step-row ${stepState(item.tool.status).cls}${item.open ? ' open' : ''}`;
+    case 'file': return `activity-file${item.open ? ' open' : ''}${item.f.failed ? ' has-failed' : ''}`;
+    case 'tasks-head': return 'activity-section';
+    case 'task': return 'activity-task task-list';
+    default: return '';
+  }
+}
+function activityMarkup(item) {
+  switch (item.kind) {
+    case 'turn': {
+      const t = item.t, prompt = t.m ? (t.m.handoff ? `换号续传 · ${t.m.handoff.toLabel || ''}` : oneLine(splitReferences(t.m.text || '').body)) : '会话开始';
+      const files = item.files ? ` · ${item.files} 个文件` : '';
+      return `<button type="button" class="activity-turn-head" data-toggle-turn="${escape(t.id)}" aria-expanded="${item.open}"><span class="turn-number">${t.number ? `#${t.number}` : '·'}</span><span class="turn-prompt" title="${escape(prompt)}">${escape(prompt)}</span><span class="turn-meta">${item.live ? '<span class="spinner"></span>' : ''}${t.tools.length} 步${files}</span><span class="flow-chevron">${icon('chevron-down')}</span></button>`;
+    }
+    case 'block': return `<button type="button" class="activity-block-head" data-goto-row="${escape(item.block)}" title="在对话中定位这一段"><span class="block-dot"></span><span class="block-title">${escape(item.title)}</span><span class="flow-meta">${item.meta}</span></button>`;
+    case 'reply': return `<button type="button" data-goto-row="t:${escape(item.m.id)}" title="在对话中定位这段回复">${icon('message')}<span>${escape(plainLine(item.m.text).slice(0, 120))}</span></button>`;
+    case 'pthinking': return panelThinkingMarkup(item);
+    case 'tool': return toolMarkup(item);
+    case 'file': {
+      const f = item.f, dir = displayPath(f.path).split('/').slice(0, -1).join('/');
+      return `<button type="button" class="activity-file-head" data-toggle-file="${escape(f.path)}" aria-expanded="${item.open}"><span class="file-icon">${icon(f.created ? 'file-plus' : 'edit')}</span><span class="file-name"><strong>${escape(f.name)}</strong><small title="${escape(f.path)}">${escape(dir || '工作区根目录')}</small></span><span class="file-change"><span class="step-stats"><b>+${f.add}</b>${f.del ? `<i>−${f.del}</i>` : ''}</span><small>${f.ops.length} 次${f.failed ? ` · <em>${f.failed} 次未完成</em>` : ''}${f.turn ? ` · #${f.turn}` : ''}</small></span><span class="flow-chevron">${icon('chevron-down')}</span></button>${item.open && f.rel != null ? `<div class="file-actions"><button type="button" class="mini-button" data-open-path="${escape(f.rel)}">${icon('external')}在编辑器打开</button></div>` : ''}`;
+    }
+    case 'tasks-head': return `<span class="spinner"></span><strong>后台任务</strong><small>${item.count} 个运行中</small>`;
+    case 'task': return taskMarkup(item.task);
+    default: return '';
+  }
+}
+function renderActivity() {
+  clearTimeout(ui.activityTimer); ui.activityTimer = 0;
+  const panel = $('#activity-panel'), list = $('#activity-list'), session = state.session;
+  updateActivityBadge();
+  if (!activityVisible()) return;
+  if (ui.activityFor !== (session?.id || null)) { list.replaceChildren(); ui.activityItems = new Map(); ui.activityFor = session?.id || null; ui.activityStuck = true; }
+  const files = session ? fileChanges(session) : [], steps = (session?.tools || []).length;
+  $('#activity-steps-count').textContent = steps || ''; $('#activity-files-count').textContent = files.length || '';
+  const add = files.reduce((n, f) => n + f.add, 0), del = files.reduce((n, f) => n + f.del, 0);
+  $('#activity-caption').textContent = !session ? '' : ui.activityTab === 'files' ? (files.length ? `${files.length} 个文件 · +${add} −${del}` : '') : steps ? `${steps} 步${running(session) ? ' · 运行中' : ''}` : '';
+  $('#activity-inline').classList.toggle('active', ui.stepsInline); $('#activity-inline').setAttribute('aria-pressed', String(ui.stepsInline));
+  const { items, empty } = session ? activityPanelItems(session) : { items: [], empty: ['steps', '选择或开始一段对话', '执行步骤和文件变更会出现在这里。'] };
+  if (!items.length) { const html = emptyMarkup(...empty); if (list._empty !== html) { list.innerHTML = html; list._empty = html; ui.activityItems = new Map(); } return; }
+  if (list._empty) { list.replaceChildren(); list._empty = null; }
+  const pinned = ui.activityStuck, existing = new Map($$(':scope > [data-key]', list).map(el => [el.dataset.key, el]));
+  ui.activityItems = new Map();
+  items.forEach((item, index) => {
+    const sig = activitySig(item); let el = existing.get(item.key);
+    if (!el || el.dataset.sig !== sig) {
+      const row = document.createElement('div'); row.innerHTML = activityMarkup(item); row.dataset.key = item.key; row.dataset.sig = sig;
+      if (item.kind === 'tool') enhanceMarkdown(row);
+      if (el) el.replaceWith(row); el = row;
+    }
+    if (item.anchor) el.dataset.anchor = item.anchor; else delete el.dataset.anchor;
+    const cls = activityClass(item); if (el.className !== cls) el.className = cls;
+    existing.delete(item.key); item.el = el; ui.activityItems.set(item.key, item);
+    if (list.children[index] !== el) list.insertBefore(el, list.children[index] || null);
+  });
+  for (const el of existing.values()) el.remove();
+  if (pinned && running(session) && ui.activityTab === 'steps') list.scrollTop = list.scrollHeight;
+}
+function scheduleActivity() { updateActivityBadge(); if (!activityVisible() || ui.activityTimer) return; ui.activityTimer = setTimeout(renderActivity, 150); }
+function updateActivityBadge() {
+  const session = state.session, live = running(session), badge = $('#activity-badge');
+  const since = live ? dateValue(session.messages?.findLast(m => m.role === 'user')?.createdAt) : 0, count = live ? (session.tools || []).filter(t => dateValue(t.createdAt) >= since).length : 0;
+  const text = live && count ? String(count) : '';
+  if (badge.textContent !== text) badge.textContent = text;
+  badge.hidden = !text; $('#activity-toggle').classList.toggle('live', live);
+  $('#activity-toggle').classList.toggle('active', activityVisible()); $('#activity-toggle').setAttribute('aria-expanded', String(activityVisible()));
+}
+// Three columns only fit on wide screens; below that the activity panel and the workspace take turns.
+function setActivityOpen(open, { remember = true } = {}) {
+  ui.activityOpen = open; ui.activitySuspended = false;
+  if (remember) { ui.activityPref = open ? 'open' : 'closed'; storage.set('cloud-ops-workbench-activity', ui.activityPref); }
+  if (open && ide.workspaceOpen && !matchMedia('(min-width: 1700px)').matches && !narrowLayout()) closeWorkspace({ keepActivity: true });
+  layoutActivity(); if (open) renderActivity();
+}
+function layoutActivity() {
+  const visible = activityVisible(), overlay = visible && narrowLayout();
+  $('#activity-panel').hidden = !visible; $('.ide-body').classList.toggle('with-activity', visible && !overlay);
+  $('#activity-panel').classList.toggle('overlay', overlay); $('#activity-scrim').hidden = !overlay;
+  updateActivityBadge();
+}
+function setStepsInline(inline) {
+  ui.stepsInline = inline; storage.set('cloud-ops-workbench-steps', inline ? 'inline' : '');
+  ui.stuck = false; renderMessages(); renderActivity();
+  toast(inline ? '执行步骤改为在对话中逐条展开。' : '对话区只保留每段工作的一行摘要，步骤在「执行过程」中查看。');
+}
+function flash(el) { el?.animate?.([{ backgroundColor: '#fdf3d8' }, { backgroundColor: '#fdf3d8', offset: .3 }, { backgroundColor: 'transparent' }], { duration: 1800, easing: 'ease-out' }); }
+// Bring an activity or step into view in the panel, opening the turn that holds it.
+function revealInActivity({ activity, tool }) {
+  const session = state.session; if (!session) return;
+  const turn = activityTurns(session).find(t => t.activities.some(a => a.key === activity || (tool && a.entries.some(e => e.tool?.id === tool))));
+  if (!turn) return;
+  ui.activityTab = 'steps'; syncActivityTabs(); ui.openTurns.add(turn.id); ui.closedTurns.delete(turn.id); if (tool) ui.openSteps.add(tool);
+  if (!activityVisible()) setActivityOpen(true, { remember: !narrowLayout() }); else renderActivity();
+  ui.activityStuck = false;
+  requestAnimationFrame(() => {
+    const el = tool ? ui.activityItems.get(`ps:${tool}`)?.el : ui.activityItems.get(`pb:${activity}`)?.el || $(`#activity-list > [data-anchor="${CSS.escape(activity)}"]`);
+    if (!el?.isConnected) return; el.scrollIntoView({ block: tool ? 'center' : 'start', behavior: reduceMotion.matches ? 'auto' : 'smooth' }); flash(el);
+  });
+}
+function syncActivityTabs() { $$('[data-activity-tab]').forEach(b => { const on = b.dataset.activityTab === ui.activityTab; b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); }); }
+// Rows clicked in the panel stay put on screen while the list re-renders around them.
+function toggleActivityRow(control, change) {
+  const list = $('#activity-list'), row = control.closest('#activity-list > [data-key]'), top = row?.getBoundingClientRect().top;
+  change(); renderActivity();
+  const el = row && ui.activityItems.get(row.dataset.key)?.el; if (el && top != null) list.scrollTop += el.getBoundingClientRect().top - top;
+  ui.activityStuck = list.scrollHeight - list.scrollTop - list.clientHeight <= 48;
+}
+function gotoRow(key) {
+  const el = ui.items.get(key)?.el; if (!el?.isConnected) return;
+  switchView('chat'); ui.stuck = false; if (narrowLayout()) setActivityOpen(false, { remember: false });
+  el.scrollIntoView({ block: 'center', behavior: reduceMotion.matches ? 'auto' : 'smooth' }); flash(el);
+}
+
 
 /* ---------- Monitor ---------- */
 function renderMonitor() {
@@ -948,7 +1202,7 @@ function renderTodos() {
   panel.hidden = false; panel.classList.toggle('open', ui.todoOpen); panel.classList.toggle('paused', !live);
   panel.innerHTML = `<button type="button" class="todo-head" data-toggle-todos aria-expanded="${ui.todoOpen}"><span class="todo-icon">${live && current ? '<span class="spinner"></span>' : icon('list-check')}</span><span class="todo-title">${escape(current ? current.activeForm || current.content : live ? '任务清单' : '任务清单未全部完成')}</span><span class="todo-count">${done}/${todos.length}</span><span class="step-chevron">${icon('chevron-down')}</span></button><div class="todo-bar"><span style="width:${(done / todos.length * 100).toFixed(1)}%"></span></div>${ui.todoOpen ? todoListMarkup(todos) : ''}`;
 }
-const limitName = type => ({ five_hour: '5 小时额度', seven_day: '本周额度', seven_day_opus: 'Opus 本周额度', seven_day_sonnet: 'Sonnet 本周额度', seven_day_overage_included: '本周额度', overage: '额外用量' }[type] || '额度');
+const limitName = type => { const known = { five_hour: '5 小时额度', seven_day: '本周额度', seven_day_overage_included: '本周额度', overage: '额外用量' }[type]; const family = !known && /^seven_day_/.test(type || '') ? familyOf(type) : null; return known || (family ? `${prettyModel(family)} 本周额度` : '额度'); };
 function titleOf(id) { return state.sessions.find(s => s.id === id)?.title || '未命名会话'; }
 function renderNotices() {
   const notices = [], session = state.session, other = state.sessions.find(s => s.id !== state.activeId && running(s));
@@ -1029,7 +1283,7 @@ function updateControls() {
   const mode = $('#mode-select').value;
   $('#composer-status').innerHTML = `<span class="tiny-dot"></span>${terminalBusy ? '终端运行中 · 结束进程后可继续对话' : !ready ? '执行环境尚未就绪' : mode === 'plan' ? '只读计划 · 先分析，再行动' : mode === 'bypassPermissions' ? `工具自动同意 · ${state.config.rootOperations ? 'Root 运维已启用' : '无 sudo 权限'}` : `云端执行 · 操作逐次确认${state.config.rootOperations ? ' · Root 运维' : ''}`}`;
   $('#composer-status').className = `mode-${mode}`;
-  $('#ide-account-status').textContent = `${state.execution?.label || activeAccount?.label || 'Claude Code'}${auth.subscriptionType ? ` · ${auth.subscriptionType}` : ''}${auth.version ? ` · ${auth.version}` : ''}`;
+  $('#ide-account-status').textContent = `${state.execution?.label || activeAccount?.label || 'Claude Code'}${auth.subscriptionType ? ` · ${auth.subscriptionType}` : ''} · ${modelLabel($('#model-select').value)}${auth.version ? ` · CLI ${auth.version}` : ''}`;
   $('#ide-session-state').textContent = loginBusy ? '账号授权中 · 完成或取消后继续' : terminalBusy ? '终端进程运行中' : state.session?.status === 'awaiting_approval' ? '等待你的确认' : inRun ? currentActivity(state.session) : otherRun ? `「${otherRun.title || '另一个会话'}」运行中` : '就绪';
   $('#export-session').disabled = !state.activeId;
   renderRunPill(); renderNotices(); updateDocumentTitle(); updateRunClock();
@@ -1057,24 +1311,75 @@ function scrollToLatest() { switchView('chat'); ui.stuck = true; const messages 
 function openRename(id) { const session = state.sessions.find(s => s.id === id); if (!session) return; state.renameId = id; $('#rename-input').value = session.title || ''; $('#rename-dialog').showModal(); $('#rename-input').select(); }
 async function changeSession(id, patch) { const result = await api(`/api/sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch }); if (id === state.activeId) acceptSession(result); else { const index = state.sessions.findIndex(s => s.id === id); if (index >= 0) state.sessions[index] = { ...state.sessions[index], ...result }; renderSessions(); } return result; }
 
+/* ---------- Models ---------- */
+// What the CLI reported: aliases (opus, sonnet, fable, haiku) with the exact model each runs today, then
+// pinned versions. With several logins (account plugins) the server offers their union. Before any report, the plain aliases.
+const modelFamilies = ['opus', 'sonnet', 'fable', 'haiku'];
+const familyOf = value => modelFamilies.find(family => String(value || '').toLowerCase().includes(family)) || null;
+function modelCatalog() {
+  const list = Array.isArray(state.config.models) && state.config.models.length ? state.config.models : modelFamilies;
+  return list.map(m => typeof m === 'string' ? { value: m } : m).filter(m => typeof m?.value === 'string');
+}
+// "claude-opus-4-6" → "Opus 4.6", "claude-haiku-4-5-20251001" → "Haiku 4.5".
+function prettyModel(id) {
+  const value = String(id || ''), m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(value);
+  if (m) return `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}${m[3] ? `.${m[3]}` : ''}`;
+  return modelFamilies.includes(value) ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
+}
+const modelEntry = (value, catalog = modelCatalog()) => catalog.find(m => m.value === value) || null;
+// The CLI's display name when it carries a version ("Opus 5.5"), else the version read from the model ID.
+const versionedName = m => /\d/.test(m.displayName || '') ? m.displayName : m.resolvedModel ? prettyModel(m.resolvedModel) : m.displayName || prettyModel(m.value);
+const modelLabel = (value, catalog) => { const entry = modelEntry(value, catalog); return entry ? versionedName(entry) : prettyModel(value); };
+const resolvedOf = (value, catalog) => modelEntry(value, catalog)?.resolvedModel || (/^claude-/.test(value || '') ? value : null);
+// Name of a model the CLI actually ran, e.g. claude-opus-5-5 → "Opus 5.5".
+function modelName(id, catalog = modelCatalog()) {
+  if (!id) return '';
+  const entry = catalog.find(m => m.value === id) || catalog.find(m => m.resolvedModel === id);
+  return entry ? versionedName(entry) : prettyModel(id);
+}
+function renderModelOptions(value = $('#model-select').value || 'sonnet') {
+  const select = $('#model-select'), catalog = modelCatalog();
+  const aliases = catalog.filter(m => modelFamilies.includes(m.value)), pinned = catalog.filter(m => !modelFamilies.includes(m.value));
+  const option = m => `<option value="${escape(m.value)}">${escape(versionedName(m))}</option>`;
+  let html = pinned.length && aliases.length ? `<optgroup label="最新版本">${aliases.map(option).join('')}</optgroup><optgroup label="指定版本">${pinned.map(option).join('')}</optgroup>` : catalog.map(option).join('');
+  if (!catalog.some(m => m.value === value)) html += `<option value="${escape(value)}">${escape(prettyModel(value))}</option>`;
+  // Rebuilding the options while a dropdown is open would close it, so only touch the DOM when they change.
+  if (html !== ui.modelHTML) { select.innerHTML = html; ui.modelHTML = html; }
+  select.value = value;
+  const entry = modelEntry(value, catalog);
+  select.title = entry?.resolvedModel ? `${entry.displayName || value} · ${entry.resolvedModel}${entry.description ? ` · ${entry.description}` : ''}` : '选择模型';
+}
+// The model line above the quota: what the next turn will run, and what the last turn actually ran when that differs.
+function renderModelStatus() {
+  const label = $('#active-model-label'); if (!label) return;
+  const value = $('#model-select').value, resolved = resolvedOf(value), session = state.session;
+  const lastUser = session?.messages?.findLast(m => m.role === 'user'), actual = session?.messages?.findLast(m => m.role === 'assistant' && m.model)?.model || session?.metrics?.model;
+  const parts = [`<b>${escape(modelLabel(value))}</b>`]; if (resolved) parts.push(`<code>${escape(resolved)}</code>`);
+  let tone = '', title = resolved ? `所选模型会以 ${resolved} 运行` : '所选模型的具体版本由 Claude Code 决定';
+  if (actual && resolved && actual !== resolved) {
+    const asked = lastUser?.resolvedModel || resolvedOf(lastUser?.model);
+    tone = asked && asked !== actual ? ' mismatch' : '';
+    parts.push(`<span>上一轮实际 ${escape(modelName(actual))}</span>`);
+    title = tone ? `上一轮请求 ${asked}，Claude Code 实际使用 ${actual}（可能因账号无权限或模型繁忙而回退）` : `上一轮由 ${actual} 回复；下一轮改用 ${resolved}`;
+  }
+  const html = `${icon('sparkles')}${parts.join('<i>·</i>')}`;
+  if (label._html !== html) { label.innerHTML = html; label._html = html; }
+  label.className = `active-model${tone}`; label.title = title;
+}
 function configureEffort(value = state.session?.effort || $('#effort-select').value || 'auto') {
   const levels = Array.isArray(state.config.effortLevels) ? state.config.effortLevels : ['auto'];
   const labels = { auto: '自动思考', low: '低思考', medium: '中等思考', high: '高思考', xhigh: '超高思考', max: '最高思考' };
-  const models = state.config.models || ['sonnet', 'opus', 'haiku']; const selected = $('#model-select').value;
-  if (models.map(m => typeof m === 'string' ? m : m.value || m.id).join(',') !== [...$('#model-select').options].map(o => o.value).join(',')) {
-    $('#model-select').innerHTML = models.map(m => { const v = typeof m === 'string' ? m : m.value || m.id; return `<option value="${escape(v)}">${escape(typeof m === 'object' ? m.label || m.name || v : `Claude ${v.charAt(0).toUpperCase()}${v.slice(1)}`)}</option>`; }).join(''); $('#model-select').value = selected || 'sonnet';
-  }
-  const capabilities = state.session?.capabilities?.models;
-  const current = Array.isArray(capabilities) ? capabilities.find(m => (m.value || m.id || m.model || m.name || '').includes($('#model-select').value)) : null;
-  const supported = current?.supportedEffortLevels;
-  const noEffort = /haiku/i.test($('#model-select').value) || current?.supportsEffort === false || Boolean(current && current.supportsEffort == null && !Array.isArray(supported));
+  renderModelOptions();
+  const model = $('#model-select').value, current = modelEntry(model) || state.session?.capabilities?.models?.find?.(m => m.value === model) || null;
+  const reported = Boolean(current?.resolvedModel || current?.supportedEffortLevels), supported = current?.supportedEffortLevels;
+  const noEffort = familyOf(model) === 'haiku' || current?.supportsEffort === false || Boolean(reported && current.supportsEffort == null && !Array.isArray(supported));
   const visibleLevels = noEffort ? ['auto'] : levels;
-  // Rebuilding the options while a dropdown is open would close it, so only touch the DOM when they change.
   const html = visibleLevels.map(level => `<option value="${escape(level)}"${level !== 'auto' && Array.isArray(supported) && !supported.includes(level) ? ' disabled' : ''}>${escape(labels[level] || level)}</option>`).join('');
   if (html !== ui.effortHTML) { $('#effort-select').innerHTML = html; ui.effortHTML = html; }
   $('#effort-select').value = visibleLevels.includes(value) ? value : 'auto';
   if ($('#effort-select').selectedOptions[0]?.disabled) $('#effort-select').value = 'auto';
-  $('#effort-select').title = '思考等级会传递给 Claude Code；可用档位以当前模型官方能力为准。';
+  $('#effort-select').title = noEffort ? `${modelLabel(model)} 不支持调整思考等级` : '思考等级会传递给 Claude Code；可用档位以当前模型官方能力为准。';
+  renderModelStatus();
 }
 
 /* ---------- Account state (single account) ---------- */
@@ -1109,7 +1414,7 @@ function renderUsage() {
 }
 function tick() {
   renderUsage(); updateRunClock(); for (const el of $$('[data-countdown]')) { const text = remainingTime(el.dataset.countdown); if (el.textContent !== text) el.textContent = text; }
-  for (const el of $$('#messages [data-since]')) { const text = clockText(serverNow() - dateValue(el.dataset.since)); if (el.textContent !== text) el.textContent = text; }
+  for (const el of $$('#messages [data-since], #activity-list [data-since]')) { const text = clockText(serverNow() - dateValue(el.dataset.since)); if (el.textContent !== text) el.textContent = text; }
   // Re-evaluates the working row (shown once a running reply has been silent for a moment).
   if (running(state.session) && state.view === 'chat') scheduleRender();
 }
@@ -1141,8 +1446,8 @@ async function loadMonaco() {
     renderEditor(); return ide.editor;
   }).catch(error => { ide.monacoLoading = null; toast(error.message, true); return null; }); return ide.monacoLoading;
 }
-async function openWorkspace() { ide.workspaceOpen = true; $('#workspace-panel').hidden = false; $('.ide-body').classList.add('with-workspace'); $('#workspace-toggle').classList.add('active'); await ensureSession(); await loadDirectory(); loadMonaco(); }
-function closeWorkspace() { ide.workspaceOpen = false; $('#workspace-panel').hidden = true; $('.ide-body').classList.remove('with-workspace'); $('#workspace-toggle').classList.remove('active'); }
+async function openWorkspace() { if (activityVisible() && !matchMedia('(min-width: 1700px)').matches && !narrowLayout()) { ui.activitySuspended = true; layoutActivity(); } ide.workspaceOpen = true; $('#workspace-panel').hidden = false; $('.ide-body').classList.add('with-workspace'); $('#workspace-toggle').classList.add('active'); await ensureSession(); await loadDirectory(); loadMonaco(); }
+function closeWorkspace({ keepActivity = false } = {}) { ide.workspaceOpen = false; $('#workspace-panel').hidden = true; $('.ide-body').classList.remove('with-workspace'); $('#workspace-toggle').classList.remove('active'); if (!keepActivity && ui.activitySuspended) { ui.activitySuspended = false; layoutActivity(); renderActivity(); } }
 // Files Claude wrote or edited in this session, for markers in the tree and tabs.
 function claudeTouched(session) { const map = new Map(); for (const t of session?.tools || []) { if (!fileTools.has(t.name) || !doneStatuses.has(t.status)) continue; const rel = relPath(toolPath(t), session.id); if (rel) map.set(rel, t.createdAt); } return map; }
 function renderFileTree(truncated) {
@@ -1278,6 +1583,8 @@ function commandsList() {
     { id: 'claude', title: '打开原生 Claude Code', subtitle: '完整原生命令与交互 · 共用工作区', icon: 'sparkles', slash: '/claude', run: () => openTerminal('claude') },
     ...(doc ? [{ id: 'quote', title: '把选中内容发到对话', subtitle: `${doc.path} · ⌘ / Ctrl Shift L`, icon: 'message-plus', slash: '/quote', run: referenceSelection }] : []),
     { id: 'usage', title: '刷新官方订阅额度', subtitle: '5 小时用量、周剩余额度与重置时间', icon: 'activity', slash: '/usage', run: refreshUsage },
+    { id: 'activity', title: activityVisible() ? '收起执行过程' : '打开执行过程', subtitle: '每一步命令、读写与文件变更 · 对话区只留摘要', icon: 'steps', slash: '/steps', run: () => setActivityOpen(!activityVisible()) },
+    { id: 'steps-inline', title: ui.stepsInline ? '步骤改回侧栏显示' : '在对话中逐条展开步骤', subtitle: ui.stepsInline ? '对话区每段工作只保留一行摘要' : '旧版样式：命令、编辑等步骤直接列在回复之间', icon: 'list', run: () => setStepsInline(!ui.stepsInline) },
     { id: 'monitor', title: '打开运行监控', subtitle: 'Token、上下文、文件与子任务轨迹', icon: 'activity', slash: '/monitor', run: () => switchView('monitor') },
     { id: 'auto', title: '切换为自动同意', subtitle: '普通工具无需逐次确认 · 提问仍会等你', icon: 'check', slash: '/auto', run: setMode('bypassPermissions') },
     { id: 'confirm', title: '切换为逐次确认', subtitle: '每次工具操作前请你批准', icon: 'shield', slash: '/confirm', run: setMode('default') },
@@ -1382,6 +1689,8 @@ $('#messages').addEventListener('click', async event => {
   const pathLink = event.target.closest('code.path-link[data-open-path]');
   if (pathLink) { openPath(pathLink.dataset.openPath, { line: pathLink.dataset.openLine }); return; }
   if (event.target.closest('.message-body')) return;
+  const openActivity = event.target.closest('[data-open-activity]');
+  if (openActivity) { revealInActivity({ activity: openActivity.dataset.openActivity }); return; }
   const toggleGroup = event.target.closest('[data-toggle-group]');
   if (toggleGroup) { const key = toggleGroup.dataset.toggleGroup; toggleRow(toggleGroup, () => { if (ui.openGroups.has(key)) ui.openGroups.delete(key); else ui.openGroups.add(key); }); return; }
   const toggleStep = event.target.closest('[data-toggle-step]');
@@ -1393,7 +1702,7 @@ $('#messages').addEventListener('click', async event => {
   const openButton = event.target.closest('[data-open-path]');
   if (openButton) { openPath(openButton.dataset.openPath, { line: openButton.dataset.openLine }); return; }
   const taskButton = event.target.closest('.task-list .task-item > button[data-task-stop]');
-  if (taskButton) { const task = state.session?.tasks?.find(t => t.id === taskButton.dataset.taskStop && t.status === 'running'); if (task) try { await api(sessionApi(`tasks/${encodeURIComponent(task.id)}/stop`), { method: 'POST', body: {} }); await refreshSession(); } catch (error) { toast(error.message, true); } return; }
+  if (taskButton) { stopTask(taskButton.dataset.taskStop); return; }
   const suggestion = event.target.closest('.welcome-suggestions > button[data-suggestion]');
   if (suggestion) { $('#message-input').value = suggestion.dataset.suggestion; resizeInput(); preserveDraft(); updateControls(); $('#message-input').focus(); return; }
   const copyTurn = event.target.closest('.turn-foot > button[data-copy-turn]');
@@ -1416,7 +1725,7 @@ $('#messages').addEventListener('click', async event => {
 $('#messages').addEventListener('keydown', event => { const link = event.target.closest?.('code.path-link[data-open-path]'); if (link && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openPath(link.dataset.openPath, { line: link.dataset.openLine }); } });
 // Cross-panel links outside the transcript: notices, attachments, monitor rows, terminal ownership.
 document.addEventListener('click', event => {
-  if (!(event.target instanceof Element) || event.target.closest('#messages')) return;
+  if (!(event.target instanceof Element) || event.target.closest('#messages, #activity-list')) return;
   if (event.target.closest('[data-reload-page]')) { location.reload(); return; }
   const goto = event.target.closest('[data-goto-session]'); if (goto) { selectSession(goto.dataset.gotoSession); return; }
   const open = event.target.closest('[data-open-path]'); if (open) { openPath(open.dataset.openPath, { line: open.dataset.openLine }); return; }
@@ -1465,13 +1774,15 @@ for (const [selector, key] of [['#model-select', 'model'], ['#mode-select', 'per
   const previous = { model: state.session?.model || 'sonnet', effort: state.session?.effort || 'auto', permissionMode: state.session?.permissionMode || 'bypassPermissions' };
   if (key === 'model') configureEffort();
   const patch = key === 'model' ? { model: event.target.value, effort: $('#effort-select').value } : { [key]: event.target.value };
+  if (key !== 'permissionMode') { storage.set('cloud-ops-workbench-model', $('#model-select').value); storage.set('cloud-ops-workbench-effort', $('#effort-select').value); }
+  renderModelStatus();
   updateControls();
   if (!sessionId) return;
   try { await changeSession(sessionId, patch); }
   catch (error) {
     toast(error.message, true);
     if (state.activeId === sessionId) {
-      if (key === 'model') { $('#model-select').value = previous.model; configureEffort(previous.effort); }
+      if (key === 'model') { renderModelOptions(previous.model); configureEffort(previous.effort); }
       else $(selector).value = previous[key];
       updateControls();
     }
@@ -1480,15 +1791,39 @@ for (const [selector, key] of [['#model-select', 'model'], ['#mode-select', 'per
 async function manualRefresh() { const button = $('#refresh-button'); button.disabled = true; button.classList.add('spinning'); try { await refreshBootstrap(); if (state.activeId) await refreshSession(); if (!state.connected) connectEvents(); toast('状态已更新。'); } catch (error) { toast(error.message, true); } finally { button.disabled = false; button.classList.remove('spinning'); } }
 $('#refresh-button').addEventListener('click', manualRefresh);
 $('#reconnect-button').addEventListener('click', () => { connectEvents(); });
-document.addEventListener('keydown', event => { if (!state.authenticated) return; if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openCommands(); } if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && currentDocument() && ide.workspaceOpen) { event.preventDefault(); saveDocument(); } if (event.key === 'Escape') { closeSidebar(); $('#slash-menu').hidden = true; } if (event.key.toLowerCase() === 'n' && !event.metaKey && !event.ctrlKey && !event.altKey && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) && !document.activeElement?.isContentEditable && !document.activeElement?.closest('.monaco-editor,.terminal-panel') && !$$('dialog[open]').length) { event.preventDefault(); newSessionView(); } });
+document.addEventListener('keydown', event => { if (!state.authenticated) return; if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openCommands(); } if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && currentDocument() && ide.workspaceOpen) { event.preventDefault(); saveDocument(); } if (event.key === 'Escape') { closeSidebar(); $('#slash-menu').hidden = true; if (activityVisible() && narrowLayout() && !document.querySelector('dialog[open]')) setActivityOpen(false, { remember: false }); } if (event.key.toLowerCase() === 'n' && !event.metaKey && !event.ctrlKey && !event.altKey && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) && !document.activeElement?.isContentEditable && !document.activeElement?.closest('.monaco-editor,.terminal-panel') && !$$('dialog[open]').length) { event.preventDefault(); newSessionView(); } });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && state.authenticated) { ui.attention = null; updateDocumentTitle(); refreshBootstrap().then(() => state.activeId ? refreshSession() : undefined).catch(() => {}); if (!state.source || state.source.readyState === EventSource.CLOSED) connectEvents(); } });
 window.addEventListener('pagehide', () => { preserveDraft(); state.source?.close(); ide.terminalSource?.close(); });
 window.addEventListener('pageshow', event => { if (event.persisted && state.authenticated) connectEvents(); });
-window.addEventListener('resize', () => { resizeInput(); fitTerminal(); if (!matchMedia('(max-width: 680px)').matches) closeSidebar(); else syncSidebarAccess(); }, { passive: true });
+window.addEventListener('resize', () => { resizeInput(); fitTerminal(); layoutActivity(); if (!matchMedia('(max-width: 680px)').matches) closeSidebar(); else syncSidebarAccess(); }, { passive: true });
 setInterval(tick, 1000);
 
 $('#refresh-usage').addEventListener('click', refreshUsage);
 $('#usage-collapse').addEventListener('click', () => { ui.usageCollapsed = !ui.usageCollapsed; storage.set('cloud-ops-workbench-usage-collapsed', ui.usageCollapsed ? '1' : ''); renderUsage(); });
+$('#activity-toggle').addEventListener('click', () => setActivityOpen(!activityVisible(), { remember: !narrowLayout() }));
+$('#activity-close').addEventListener('click', () => setActivityOpen(false, { remember: !narrowLayout() }));
+$('#activity-scrim').addEventListener('click', () => setActivityOpen(false, { remember: false }));
+$('#activity-inline').addEventListener('click', () => setStepsInline(!ui.stepsInline));
+$('#activity-latest').addEventListener('click', () => { const list = $('#activity-list'); ui.activityStuck = true; if (ui.activityTab === 'steps') { const latest = activityTurns(state.session || {}).at(-1); if (latest) { ui.openTurns.add(latest.id); ui.closedTurns.delete(latest.id); } } renderActivity(); list.scrollTo({ top: ui.activityTab === 'steps' ? list.scrollHeight : 0, behavior: reduceMotion.matches ? 'auto' : 'smooth' }); });
+$$('[data-activity-tab]').forEach(button => button.addEventListener('click', () => { if (ui.activityTab === button.dataset.activityTab) return; ui.activityTab = button.dataset.activityTab; syncActivityTabs(); const list = $('#activity-list'); list.replaceChildren(); list._empty = null; ui.activityStuck = ui.activityTab === 'steps'; renderActivity(); if (ui.activityTab === 'steps') list.scrollTop = list.scrollHeight; }));
+$('#activity-list').addEventListener('scroll', () => { const list = $('#activity-list'); ui.activityStuck = list.scrollHeight - list.scrollTop - list.clientHeight <= 48; }, { passive: true });
+$('#activity-list').addEventListener('click', event => {
+  if (!(event.target instanceof Element)) return;
+  const pathLink = event.target.closest('code.path-link[data-open-path]'); if (pathLink) { openPath(pathLink.dataset.openPath, { line: pathLink.dataset.openLine }); return; }
+  if (event.target.closest('.message-body')) return;
+  const turn = event.target.closest('[data-toggle-turn]');
+  if (turn) { const id = turn.dataset.toggleTurn, open = turn.getAttribute('aria-expanded') === 'true'; toggleActivityRow(turn, () => { if (open) { ui.closedTurns.add(id); ui.openTurns.delete(id); } else { ui.openTurns.add(id); ui.closedTurns.delete(id); } }); return; }
+  const step = event.target.closest('[data-toggle-step]');
+  if (step) { const id = step.dataset.toggleStep; toggleActivityRow(step, () => { if (ui.openSteps.has(id)) ui.openSteps.delete(id); else ui.openSteps.add(id); }); return; }
+  const thinking = event.target.closest('[data-toggle-pthinking]');
+  if (thinking) { const id = thinking.dataset.togglePthinking; toggleActivityRow(thinking, () => { if (ui.panelThinking.has(id)) ui.panelThinking.delete(id); else ui.panelThinking.add(id); }); return; }
+  const file = event.target.closest('[data-toggle-file]');
+  if (file) { const path = file.dataset.toggleFile; toggleActivityRow(file, () => { if (ui.openFiles.has(path)) ui.openFiles.delete(path); else ui.openFiles.add(path); }); return; }
+  const load = event.target.closest('[data-load-tool]'); if (load) { loadFullTool(load.dataset.loadTool); return; }
+  const stop = event.target.closest('button[data-task-stop]'); if (stop) { stopTask(stop.dataset.taskStop); return; }
+  const open = event.target.closest('[data-open-path]'); if (open) { openPath(open.dataset.openPath, { line: open.dataset.openLine }); return; }
+  const row = event.target.closest('[data-goto-row]'); if (row) gotoRow(row.dataset.gotoRow);
+});
 $('#workspace-toggle').addEventListener('click', () => ide.workspaceOpen ? closeWorkspace() : openWorkspace().catch(error => toast(error.message, true)));
 $('#workspace-close').addEventListener('click', closeWorkspace);
 $('#workspace-refresh').addEventListener('click', () => ide.explorer === 'git' ? loadGit() : loadDirectory());

@@ -101,6 +101,20 @@ Token 构成、上下文占用、执行轨迹、文件活动与 API 等价费用
 <tr>
 <td valign="top">
 
+**🧭 执行过程侧栏**<br>
+长任务的命令、读写和文件变更集中在右侧面板，对话区每段工作只留一行摘要；后台任务也在这里查看和停止。
+
+</td>
+<td valign="top">
+
+**🏷️ 模型版本看得清**<br>
+模型列表来自官方 CLI，直接显示 Opus 5.5、Fable 5.1 这样的具体版本，也能选指定的旧版本。实际回复的模型与所选不一致时会标出来。
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
 **📱 手机也好用**<br>
 响应式布局。人在路上，也能看进度、批准操作。另有桌面通知与 <kbd>Ctrl</kbd> + <kbd>K</kbd> 命令面板。
 
@@ -136,7 +150,7 @@ Token 构成、上下文占用、执行轨迹、文件活动与 API 等价费用
 <td width="50%"><img src="docs/assets/screenshots/approval.webp" alt="审批卡片"></td>
 </tr>
 <tr>
-<td align="center"><sub><b>实时执行</b> · 每一次工具调用都在时间线上展开</sub></td>
+<td align="center"><sub><b>实时执行</b> · 对话只留摘要，每一步在右侧「执行过程」展开</sub></td>
 <td align="center"><sub><b>逐次确认模式</b> · 查看 CLI 发出的工具权限请求</sub></td>
 </tr>
 <tr>
@@ -323,6 +337,7 @@ fusheng-kelaude-workbench/
 ├── server.mjs              # Express 应用：鉴权、REST、SSE、对话调度
 ├── lib/
 │   ├── claude-runner.mjs   # CLI 子进程与 stream-json 协议解析
+│   ├── models.mjs          # CLI 报告的模型列表与模型参数校验
 │   ├── state.mjs           # 会话状态与持久化
 │   ├── live.mjs            # 带序号的增量补丁
 │   ├── usage.mjs           # 官方 /usage 额度查询
@@ -371,6 +386,16 @@ npm run workshop:build              # 重建创意工坊目录（--check 只检�
 <br>
 
 底座默认使用服务账号原有的官方登录配置，启用「多账号轮询」后可以管理多个独立官方配置。它仍是个人管理的工作台：网页登录没有多人角色、租户隔离或配额分账，多账号插件也不是账号共享系统。团队场景需要另行选择符合要求的协作与权限方案。
+
+</details>
+
+<details>
+<summary><b>模型列表里为什么没有某个模型（比如 Fable）？</b></summary>
+<br>
+
+列表来自官方 CLI：每轮对话开始时，CLI 会报告当前登录能用的模型，以及每个别名对应的具体版本。第一次对话之前，工作台先列出 Opus、Sonnet、Fable、Haiku 四个别名；对话一次之后，列表就换成 CLI 报告的版本。启用「多账号轮询」时，列表是各个登录配置的并集。
+
+如果所选模型当前账号没有权限，CLI 可能会换用其他模型回复。这时回复标题旁的模型标签会变成黄色，模型栏也会写出上一轮实际使用的版本。
 
 </details>
 

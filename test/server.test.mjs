@@ -314,6 +314,24 @@ test('timeout and CLI errors remain errors after the stop/exit sequence', async 
   assert.equal(f.wb.runs.size, 0);
 });
 
+test('model lists come from the CLI; Fable and pinned versions are selectable and recorded',async t=>{
+ const f=await fixture(t);await f.login();
+ assert.deepEqual((await f.request('/api/bootstrap')).body.config.models.map(m=>m.value),['opus','sonnet','fable','haiku']);
+ assert.equal((await f.request('/api/sessions',{method:'POST',body:{model:'claude-opus 4'}})).status,400);
+ const s=await f.create({model:'fable'});assert.equal(s.model,'fable');
+ await f.request(`/api/sessions/${s.id}/messages`,{method:'POST',body:{text:'hello'}});assert.equal(f.fake.calls[0].options.model,'fable');
+ f.fake.calls[0].emit({type:'capabilities',version:'2.9.0',models:[{value:'fable',displayName:'Fable',resolvedModel:'claude-fable-5-1'},{value:'claude-opus-4-6',displayName:'Opus 4.6',resolvedModel:'claude-opus-4-6'}]});
+ f.fake.calls[0].emit({type:'message',role:'assistant',id:'a1',text:'hi',model:'claude-fable-5-1'});await f.fake.calls[0].finish();
+ const current=(await f.request(`/api/sessions/${s.id}`)).body;
+ assert.equal(current.messages.find(m=>m.role==='user').model,'fable');
+ assert.equal(current.messages.find(m=>m.role==='assistant').model,'claude-fable-5-1');
+ assert.deepEqual((await f.request('/api/bootstrap')).body.config.models.map(m=>m.value),['fable','claude-opus-4-6']);
+ assert.equal((await f.request(`/api/sessions/${s.id}`,{method:'PATCH',body:{model:'claude-opus-4-6'}})).body.model,'claude-opus-4-6');
+ await f.request(`/api/sessions/${s.id}/messages`,{method:'POST',body:{text:'again'}});
+ assert.equal((await f.request(`/api/sessions/${s.id}`)).body.messages.filter(m=>m.role==='user').at(-1).resolvedModel,'claude-opus-4-6');
+ await f.fake.calls[1].finish();
+});
+
 test('effort persists, validates atomically and reaches the official CLI adapter',async t=>{
  const f=await fixture(t);await f.login();const s=await f.create({model:'haiku',effort:'high'});
  assert.equal(s.effort,'high');const bootstrap=await f.request('/api/bootstrap');assert(bootstrap.body.config.effortLevels.includes('xhigh'));assert.equal(bootstrap.body.usage.fiveHour.utilization,2);

@@ -59,6 +59,7 @@ test('served requests keep the 5h and weekly meters live and name the binding li
   const single = normalizeRateLimit({ status: 'rejected', rateLimitType: 'five_hour', utilization: 1, resetsAt: 1893470400 });
   assert.deepEqual(single.windows, { fiveHour: { utilization: 100, resetsAt: '2030-01-01T04:00:00.000Z' } });
   assert.equal(normalizeRateLimit({ status: 'rejected', rateLimitType: 'invented', utilization: 1 }).limitType, null);
+  assert.equal(normalizeRateLimit({ status: 'rejected', rateLimitType: 'seven_day_fable', utilization: 1 }).limitType, 'seven_day_fable', 'model weekly meters keep their family');
 });
 
 async function fixture(t) {
