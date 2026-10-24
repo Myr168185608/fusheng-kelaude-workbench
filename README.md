@@ -115,6 +115,20 @@ Token 构成、上下文占用、执行轨迹、文件活动与 API 等价费用
 <tr>
 <td valign="top">
 
+**⚡ 多个对话并行**<br>
+不同会话默认最多 3 个同时运行，各用独立工作区和 CLI 进程，互不共享上下文；同一会话仍一次只跑一轮。
+
+</td>
+<td valign="top">
+
+**📜 长会话不设上限**<br>
+记录变长后，较早的轮次自动移到历史文件，页面只保留最近部分，刷新不再卡顿；导出仍是完整记录。
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
 **📱 手机也好用**<br>
 响应式布局。人在路上，也能看进度、批准操作。另有桌面通知与 <kbd>Ctrl</kbd> + <kbd>K</kbd> 命令面板。
 
@@ -262,7 +276,7 @@ flowchart LR
 1. **原样调用官方 CLI**：每轮对话启动一次 `claude -p --input-format stream-json --output-format stream-json …`。登录认证、模型请求、工具执行都由 CLI 自己完成，工作台不读取或复制登录凭据。可选账号插件只选择对应配置目录。
 2. **审批走 stdio**：`--permission-prompt-tool stdio` 把权限请求交给工作台；选择逐次确认时显示审批卡片，自动同意模式则按所选权限策略处理。
 3. **实时推送**：CLI 的流式事件被整理成带序号的增量补丁，通过 SSE 推送；发现缺口就自动重新取快照。
-4. **一次只做一件事**：同一时间只运行一轮对话或一个终端，避免多个任务同时修改同一台服务器。
+4. **按会话加锁**：同一会话一次只运行一轮对话或它自己的终端；不同会话默认最多 3 个并行（`WORKBENCH_MAX_RUNS`，设为 `1` 回到一次只做一件事）。插件配置与账号操作仍要等所有任务结束。
 
 完整的协议流程、时序图与设计取舍见 **[工作原理](docs/ARCHITECTURE.md)**。
 
@@ -316,6 +330,7 @@ ssh -N -L 17880:127.0.0.1:17880 you@your-server
 | `CLAUDE_BINARY` | `claude` | Claude Code 可执行文件，默认从 `PATH` 查找 |
 | `WORKBENCH_ROOT_OPERATIONS` | 未启用 | 设为 `1` 时告诉 Claude 可以按本机 sudo 策略执行特权命令。**它本身不授予任何权限**，详见 [Root 运维](SECURITY.md#root-运维) |
 | `WORKBENCH_WORKSHOP_URL` | 本项目的 [`workshop/`](workshop) | 创意工坊目录地址，只接受 HTTPS。设为 `off` 关闭创意工坊，导入插件包不受影响 |
+| `WORKBENCH_MAX_RUNS` | `3` | 不同会话最多同时运行几个图形任务（1–6）。每个 Claude Code 进程约占 300–500 MB 内存；设为 `1` 时同一时间只运行一个任务 |
 | `WORKBENCH_SAFE_MODE` | 未启用 | 设为 `1` 并重启服务后，所有插件界面与服务端插件停止加载；`?safe` 仅隐藏当前浏览器的插件界面，不停用后端 |
 
 ## 安全模型

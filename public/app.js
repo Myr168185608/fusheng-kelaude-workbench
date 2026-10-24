@@ -209,6 +209,7 @@ function acceptSession(session) {
   state.session = session; syncAccountSelection();
   const index = state.sessions.findIndex(s => s.id === session.id);
   const { messages, tools, events, permissions, tasks, metrics, capabilities, ...summary } = session;
+  summary.activeAt = messages?.findLast(m => m.role === 'user')?.createdAt || session.createdAt;
   if (index < 0) state.sessions.unshift(summary); else state.sessions[index] = { ...state.sessions[index], ...summary };
   $('#current-title').textContent = session.title || '未命名会话';
   renderModelOptions(session.model || 'sonnet');
@@ -246,13 +247,15 @@ async function selectSession(id) {
 const statusText = { running: '运行中', awaiting_approval: '待确认', stopping: '正在停止', error: '出错' };
 function renderSessions() {
   const query = $('#session-search').value.trim().toLocaleLowerCase();
-  const sessions = state.sessions.filter(s => Boolean(s.archived) === state.archived && (!query || (s.title || '').toLocaleLowerCase().includes(query))).sort((a, b) => dateValue(b.updatedAt || b.createdAt) - dateValue(a.updatedAt || a.createdAt));
+  // Order by the last message you sent, not updatedAt: every streamed save bumps updatedAt, so parallel runs would keep swapping places.
+  const activeAt = s => s.activeAt || s.updatedAt || s.createdAt;
+  const sessions = state.sessions.filter(s => Boolean(s.archived) === state.archived && (!query || (s.title || '').toLocaleLowerCase().includes(query))).sort((a, b) => dateValue(activeAt(b)) - dateValue(activeAt(a)));
   $('#session-list-label').textContent = state.archived ? '已归档会话' : '最近会话';
   $('#toggle-archived').classList.toggle('active', state.archived); $('#toggle-archived').title = state.archived ? '查看最近会话' : '查看归档';
   if (!sessions.length) { ui.sessionsHTML = ''; $('#session-list').innerHTML = `<div class="session-list-empty">${query ? '没有找到匹配的会话。' : state.archived ? '归档会话会保留在这里。' : '留一点空间，给下一个好想法。<br>从新会话开始。'}</div>`; return; }
   let bucket = null;
   const html = sessions.map(s => {
-    const label = state.archived || query ? null : dayBucket(s.updatedAt || s.createdAt);
+    const label = state.archived || query ? null : dayBucket(activeAt(s));
     const header = label && label !== bucket ? `<div class="session-group-label">${label}</div>` : ''; if (label) bucket = label;
     const status = s.status === 'awaiting_approval' ? 'wait' : running(s) ? 'run' : s.status === 'error' ? 'fail' : 'idle';
     const trailing = status === 'wait' ? '<span class="session-badge wait">待确认</span>' : status === 'run' ? '<span class="session-badge run">运行中</span>' : `<span class="session-time">${escape(relativeTime(s.updatedAt || s.createdAt))}</span>`;
@@ -509,6 +512,8 @@ function chatItems(session) {
   const blocks = sessionBlocks(session), compactMode = !ui.stepsInline;
   const live = running(session), lastUser = blocks.findLastIndex(b => b.type === 'user'), items = [];
   let turn = 'start', head = null, texts = 0, asked = null; ui.entryGroups = new Map();
+  const moved = session?.history;
+  if (moved?.messages) items.push({ kind: 'system', key: 'm:history', m: { id: 'history', createdAt: moved.until, text: `较早的 ${moved.turns || 0} 轮对话已移出页面以保持流畅，导出会话可查看完整记录；不影响 Claude 继续这段对话。` } });
   const closeTurn = () => { if (head && texts && !head.live) items.push({ kind: 'foot', key: `f:${turn}`, turn }); };
   const noteModel = m => { if (head && !head.model && m?.model) head.model = m.model; };
   blocks.forEach((block, index) => {
@@ -726,7 +731,7 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 function renderMessages() {
   const session = state.session, container = $('#messages');
   const messages = Array.isArray(session?.messages) ? session.messages : [], tools = Array.isArray(session?.tools) ? session.tools : [];
-  $('#message-count').textContent = messages.filter(m => m.role === 'user' || (m.role === 'assistant' && (m.text || '').trim())).length;
+  $('#message-count').textContent = (session?.history?.turns || 0) + (session?.history?.replies || 0) + messages.filter(m => m.role === 'user' || (m.role === 'assistant' && (m.text || '').trim())).length;
   ui.renderPending = false;
   if (!session || (!messages.length && !tools.length && !(session.permissions || []).length)) {
     if (!container.querySelector(':scope > #welcome')) container.innerHTML = welcomeHTML;
@@ -849,7 +854,7 @@ function onPatch(frame) {
   const changed = applyPatch(session, frame); if (!changed) { resyncSession(); return; }
   noteServerTime(frame.now); if (frame.ops?.some(op => op.op !== 'metrics')) ui.lastProgressAt = performance.now();
   // toolCalls mirrors lib/state.mjs (tools.length); the server sends metrics ops only after usage events.
-  if (changed.tools) { session.metrics ||= {}; session.metrics.toolCalls = session.tools.length; detectWorkspaceChanges({ tools: before, status: session.status }, session); if (changed.todos) renderTodos(); updateControls(); }
+  if (changed.tools) { session.metrics ||= {}; session.metrics.toolCalls = (session.history?.tools || 0) + session.tools.length; detectWorkspaceChanges({ tools: before, status: session.status }, session); if (changed.todos) renderTodos(); updateControls(); }
   else if (running(session) && $('#active-run-label').textContent !== currentActivity(session)) updateControls();
   if (changed.tools || changed.metrics) { scheduleMonitor(); plugins.metrics(); }
   if (changed.tools && before) { const known = new Set(before.map(t => t.id)); for (const tool of session.tools || []) if (!known.has(tool.id)) plugins.activity({ kind: 'tool', sessionId: session.id, current: true, tool: String(tool.name || tool.toolName || '').slice(0, 64) }); }
@@ -916,7 +921,7 @@ const narrowLayout = () => matchMedia('(max-width: 1100px)').matches;
 const activityVisible = () => ui.activityOpen && !ui.activitySuspended;
 // Turns of the session with what Claude did in each: the activities (steps) and the replies between them.
 function activityTurns(session) {
-  const turns = []; let turn = null, number = 0;
+  const turns = []; let turn = null, number = session?.history?.turns || 0;
   for (const block of sessionBlocks(session)) {
     if (block.type === 'user') { turns.push(turn = { id: block.m.id, m: block.m, number: ++number, seq: [] }); continue; }
     if (block.type === 'system') continue;
@@ -1205,10 +1210,11 @@ function renderTodos() {
 const limitName = type => { const known = { five_hour: '5 小时额度', seven_day: '本周额度', seven_day_overage_included: '本周额度', overage: '额外用量' }[type]; const family = !known && /^seven_day_/.test(type || '') ? familyOf(type) : null; return known || (family ? `${prettyModel(family)} 本周额度` : '额度'); };
 function titleOf(id) { return state.sessions.find(s => s.id === id)?.title || '未命名会话'; }
 function renderNotices() {
-  const notices = [], session = state.session, other = state.sessions.find(s => s.id !== state.activeId && running(s));
-  if (other) notices.push({ tone: 'info', icon: 'activity', text: `「${escape(other.title || '未命名会话')}」${other.status === 'awaiting_approval' ? '在等你确认' : '正在运行'}，一次只能运行一个任务。`, action: `<button type="button" data-goto-session="${escape(other.id)}">前往查看</button>` });
+  const notices = [], session = state.session, waiting = state.sessions.find(s => s.id !== state.activeId && s.status === 'awaiting_approval'), slots = runSlots();
+  if (waiting) notices.push({ tone: 'info', icon: 'activity', text: `「${escape(waiting.title || '未命名会话')}」在等你确认，确认后它会继续运行。`, action: `<button type="button" data-goto-session="${escape(waiting.id)}">前往查看</button>` });
+  if (slots.full && !running(session)) notices.push({ tone: 'info', icon: 'activity', text: `已有 ${slots.count} 个任务在并行运行（上限 ${slots.max} 个），其中一个完成后即可发送。` });
   const term = ide.terminal?.status === 'running' ? ide.terminal : null;
-  if (term) notices.push({ tone: 'info', icon: 'terminal', text: `${term.kind === 'claude' ? '原生 Claude' : 'Shell'} 终端运行中${term.sessionId && term.sessionId !== state.activeId ? `（属于「${escape(titleOf(term.sessionId))}」）` : ''}，结束进程后可继续对话。`, action: '<button type="button" data-open-terminal>打开终端</button>' });
+  if (term) notices.push({ tone: 'info', icon: 'terminal', text: `${term.kind === 'claude' ? '原生 Claude' : 'Shell'} 终端运行中${term.sessionId && term.sessionId !== state.activeId ? `（属于「${escape(titleOf(term.sessionId))}」），不影响这里的对话；同一时间只能开一个终端。` : '，结束进程后可继续对话。'}`, action: '<button type="button" data-open-terminal>打开终端</button>' });
   if (session?.archived) notices.push({ tone: 'muted', icon: 'archive', text: '这个会话已归档，记录完整保留。', action: '<button type="button" data-restore-session>恢复会话</button>' });
   const metrics = session?.metrics || {}, ctx = finite(metrics.contextTokens) && finite(metrics.contextWindow) && metrics.contextWindow > 0 ? metrics.contextTokens / metrics.contextWindow * 100 : null;
   if (ctx !== null && ctx >= 80 && !running(session) && !session?.archived) notices.push({ tone: 'warn', icon: 'layers', text: `上下文已用 ${ctx.toFixed(0)}%，接近上限，可先压缩再继续。`, action: '<button type="button" data-native-command="/compact">原生终端 /compact</button>' });
@@ -1218,9 +1224,20 @@ function renderNotices() {
   const switching = '';
   if (usage.rateLimited && usage.cooldownUntil) notices.push({ tone: 'danger', icon: 'clock', text: `${limitName(usage.limitType)}已触发官方限流，约 <b data-countdown="${escape(usage.cooldownUntil)}">${remainingTime(usage.cooldownUntil)}</b> 后恢复。${switching}` });
   else if (near) { const [name, w] = near; notices.push({ tone: 'warn', icon: 'activity', text: `${name}已用 ${w.utilization.toFixed(0)}%${w.resetsAt ? `，<b data-countdown="${escape(w.resetsAt)}">${remainingTime(w.resetsAt)}</b> 后重置` : ''}。${switching}` }); }
-  const html = notices.map(n => `<div class="notice ${n.tone}"><span class="notice-icon">${icon(n.icon)}</span><span class="notice-text">${n.text}</span>${n.action || ''}</div>`).join('');
-  if (html === ui.noticesHTML) return; ui.noticesHTML = html;
-  $('#composer-notices').innerHTML = html; $('#composer-notices').hidden = !html;
+  // A notice keeps its element while a notice of the same kind (tone and icon) is listed; changed content is
+  // swapped in place and countdowns tick on their own each second. Re-creating the element would replay the
+  // entrance animation on every refresh, which reads as flicker.
+  const box = $('#composer-notices'), seen = {};
+  const wanted = notices.map(n => { const kind = `${n.tone}|${n.icon}`, inner = `<span class="notice-icon">${icon(n.icon)}</span><span class="notice-text">${n.text}</span>${n.action || ''}`; return { id: `${kind}|${seen[kind] = (seen[kind] ?? -1) + 1}`, tone: n.tone, inner, key: inner.replace(/(data-countdown="[^"]*">)[^<]*/g, '$1') }; });
+  const key = wanted.map(w => w.id + w.key).join(''); if (key === ui.noticesHTML) return; ui.noticesHTML = key;
+  const ids = new Set(wanted.map(w => w.id)); for (const el of [...box.children]) if (!ids.has(el.noticeId)) el.remove();
+  wanted.forEach((w, i) => {
+    let el = [...box.children].find(c => c.noticeId === w.id);
+    if (!el) { el = document.createElement('div'); el.className = `notice ${w.tone}`; el.noticeId = w.id; }
+    if (el.noticeKey !== w.key) { el.innerHTML = w.inner; el.noticeKey = w.key; }
+    if (box.children[i] !== el) box.insertBefore(el, box.children[i] || null);
+  });
+  box.hidden = !wanted.length;
 }
 const faviconBase = '<rect width="64" height="64" rx="18" fill="#182d2c"/><text x="32" y="44" text-anchor="middle" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="40" fill="#bde5cc">氪</text>';
 function setFavicon(color) {
@@ -1261,30 +1278,34 @@ async function toggleNotifications() {
   if (permission !== 'granted') { toast('浏览器没有允许通知，可在站点设置里开启。', true); return; }
   ui.notify = true; storage.set('cloud-ops-workbench-notify', '1'); toast('已开启：任务完成或需要确认时，会在后台提醒你。');
 }
+// Graphical tasks in different sessions run in parallel up to the server's cap; the server re-checks on send.
+function runSlots() { const count = state.sessions.filter(running).length, max = state.config.maxConcurrentRuns || 1; return { count, max, full: count >= max }; }
+// One terminal at a time overall, but it only holds back the conversation it belongs to.
+function terminalHere() { return ide.terminal?.status === 'running' && ide.terminal.sessionId === state.activeId; }
 function updateControls() {
   const inRun = running(state.session); const loading = Boolean(state.activeId && !state.session); const archived = Boolean(state.session?.archived);
-  const terminalBusy = ide.terminal?.status === 'running';
+  const terminalBusy = ide.terminal?.status === 'running', terminalOwn = terminalHere(), slots = runSlots();
   const loginBusy = Boolean(loginInProgress());
   syncAccountSelection(); const ready = accountReady(); const activeAccount = selectedAccount(); const auth = activeAccount?.auth || state.account || {};
-  const otherRun = state.sessions.find(s => s.id !== state.activeId && running(s));
+  const others = slots.count - (inRun ? 1 : 0);
   $('#send-button').hidden = inRun; $('#stop-button').hidden = !inRun;
-  $('#send-button').disabled = state.busy || terminalBusy || loginBusy || loading || archived || state.accountSwitchPending || !ready || Boolean(otherRun) || !$('#message-input').value.trim();
+  $('#send-button').disabled = state.busy || terminalOwn || loginBusy || loading || archived || state.accountSwitchPending || !ready || (!inRun && slots.full) || !$('#message-input').value.trim();
   $('#stop-button').disabled = state.busy;
-  $('#model-select').disabled = inRun || terminalBusy || loading || state.busy || archived; $('#mode-select').disabled = inRun || terminalBusy || loading || state.busy || archived;
-  $('#effort-select').disabled = inRun || terminalBusy || loading || state.busy || archived || $('#effort-select').options.length < 2;
+  $('#model-select').disabled = inRun || terminalOwn || loading || state.busy || archived; $('#mode-select').disabled = inRun || terminalOwn || loading || state.busy || archived;
+  $('#effort-select').disabled = inRun || terminalOwn || loading || state.busy || archived || $('#effort-select').options.length < 2;
   $('#start-shell').disabled = ide.terminalStarting || inRun || terminalBusy || loginBusy || state.accountSwitchPending;
   $('#start-claude').disabled = ide.terminalStarting || inRun || terminalBusy || loginBusy || !ready || state.accountSwitchPending;
   $('#message-input').disabled = archived || !ready;
-  $('#message-input').placeholder = archived ? '这个会话已归档，恢复后可继续对话。' : !ready ? (state.execution?.detail || '工作台尚未登录 Claude 账号') : inRun ? '可以先写下下一步，当前任务结束后发送…' : otherRun ? `「${otherRun.title || '另一个会话'}」正在运行，完成后即可发送…` : '描述任务，或者先聊聊你的想法…';
+  $('#message-input').placeholder = archived ? '这个会话已归档，恢复后可继续对话。' : !ready ? (state.execution?.detail || '工作台尚未登录 Claude 账号') : inRun ? '可以先写下下一步，当前任务结束后发送…' : slots.full ? `已有 ${slots.count} 个任务在并行运行，其中一个完成后即可发送…` : '描述任务，或者先聊聊你的想法…';
   $('#active-run-strip').hidden = !inRun;
   $('#active-run-strip').classList.toggle('wait', state.session?.status === 'awaiting_approval');
   $('#active-run-label').textContent = inRun ? currentActivity(state.session) : '';
   $('#rename-current').hidden = !state.activeId;
   const mode = $('#mode-select').value;
-  $('#composer-status').innerHTML = `<span class="tiny-dot"></span>${terminalBusy ? '终端运行中 · 结束进程后可继续对话' : !ready ? '执行环境尚未就绪' : mode === 'plan' ? '只读计划 · 先分析，再行动' : mode === 'bypassPermissions' ? `工具自动同意 · ${state.config.rootOperations ? 'Root 运维已启用' : '无 sudo 权限'}` : `云端执行 · 操作逐次确认${state.config.rootOperations ? ' · Root 运维' : ''}`}`;
+  $('#composer-status').innerHTML = `<span class="tiny-dot"></span>${terminalOwn ? '终端运行中 · 结束进程后可继续对话' : !ready ? '执行环境尚未就绪' : mode === 'plan' ? '只读计划 · 先分析，再行动' : mode === 'bypassPermissions' ? `工具自动同意 · ${state.config.rootOperations ? 'Root 运维已启用' : '无 sudo 权限'}` : `云端执行 · 操作逐次确认${state.config.rootOperations ? ' · Root 运维' : ''}`}`;
   $('#composer-status').className = `mode-${mode}`;
   $('#ide-account-status').textContent = `${state.execution?.label || activeAccount?.label || 'Claude Code'}${auth.subscriptionType ? ` · ${auth.subscriptionType}` : ''} · ${modelLabel($('#model-select').value)}${auth.version ? ` · CLI ${auth.version}` : ''}`;
-  $('#ide-session-state').textContent = loginBusy ? '账号授权中 · 完成或取消后继续' : terminalBusy ? '终端进程运行中' : state.session?.status === 'awaiting_approval' ? '等待你的确认' : inRun ? currentActivity(state.session) : otherRun ? `「${otherRun.title || '另一个会话'}」运行中` : '就绪';
+  $('#ide-session-state').textContent = loginBusy ? '账号授权中 · 完成或取消后继续' : terminalOwn ? '终端进程运行中' : state.session?.status === 'awaiting_approval' ? '等待你的确认' : inRun ? currentActivity(state.session) : slots.full ? `并行任务已满 · ${slots.count}/${slots.max}` : others ? `就绪 · 另有 ${others} 个任务运行中` : '就绪';
   $('#export-session').disabled = !state.activeId;
   renderRunPill(); renderNotices(); updateDocumentTitle(); updateRunClock();
 }
@@ -1555,9 +1576,9 @@ function renderTerminal() {
   $('#shell-terminal').classList.toggle('active', ide.terminalKind === 'shell'); $('#claude-terminal').classList.toggle('active', ide.terminalKind === 'claude');
   $('#terminal-empty').hidden = Boolean(terminal && ide.xterm); $('#terminal-host').hidden = !(terminal && ide.xterm);
   const foreign = active && terminal.sessionId && terminal.sessionId !== state.activeId, ended = terminal && !active && ide.xterm;
-  $('#terminal-notice').innerHTML = ended ? `${icon('info')}<span>上一个${terminal.kind === 'claude' ? '原生 Claude' : ' Shell'} 进程已结束${finite(terminal.exitCode) ? `（退出码 ${terminal.exitCode}）` : ''}，工作区文件已同步。</span><button type="button" data-start-terminal="shell">新开 Shell</button><button type="button" data-start-terminal="claude">原生 Claude</button>` : foreign ? `${icon('info')}<span>这个终端属于「${escape(titleOf(terminal.sessionId))}」，工作目录也是那个会话的。</span><button type="button" data-goto-session="${escape(terminal.sessionId)}">切换到该会话</button>` : `${icon('info')}<span>${terminal?.kind === 'claude' ? '原生 Claude 共用工作区；终端消息不自动进入图形记录。' : '终端共用当前工作区；终端消息显示在此。'}${active ? '结束终端进程后可恢复图形对话，文件会自动同步。' : '图形对话与终端一次运行一个任务。'}</span>`;
+  $('#terminal-notice').innerHTML = ended ? `${icon('info')}<span>上一个${terminal.kind === 'claude' ? '原生 Claude' : ' Shell'} 进程已结束${finite(terminal.exitCode) ? `（退出码 ${terminal.exitCode}）` : ''}，工作区文件已同步。</span><button type="button" data-start-terminal="shell">新开 Shell</button><button type="button" data-start-terminal="claude">原生 Claude</button>` : foreign ? `${icon('info')}<span>这个终端属于「${escape(titleOf(terminal.sessionId))}」，工作目录也是那个会话的。</span><button type="button" data-goto-session="${escape(terminal.sessionId)}">切换到该会话</button>` : `${icon('info')}<span>${terminal?.kind === 'claude' ? '原生 Claude 共用工作区；终端消息不自动进入图形记录。' : '终端共用当前工作区；终端消息显示在此。'}${active ? '结束终端进程后可恢复图形对话，文件会自动同步。' : '同一会话的图形对话与终端不能同时运行。'}</span>`;
   $('#terminal-notice').classList.toggle('foreign', Boolean(foreign)); $('#terminal-notice').classList.toggle('ended', Boolean(ended));
-  $$('[data-start-terminal]', $('#terminal-notice')).forEach(button => { button.disabled = ide.terminalStarting || running(state.session) || Boolean(loginInProgress()) || Boolean(state.sessions.find(s => running(s))) || (button.dataset.startTerminal === 'claude' && !accountReady()); });
+  $$('[data-start-terminal]', $('#terminal-notice')).forEach(button => { button.disabled = ide.terminalStarting || running(state.session) || Boolean(loginInProgress()) || (button.dataset.startTerminal === 'claude' && !accountReady()); });
 }
 async function openTerminal(kind = ide.terminalKind) { $('#terminal-panel').hidden = false; $('#terminal-toggle').classList.add('active'); ide.terminalKind = kind; await refreshTerminals(); renderTerminal(); if (ide.terminal) attachTerminal(); }
 function setupXterm() { if (ide.xterm) return; if (!globalThis.Terminal) throw new Error('终端组件尚未加载，请刷新页面。'); ide.xterm = new Terminal({ cursorBlink: true, fontSize: 13, lineHeight: 1.3, fontFamily: '"SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace', scrollback: 8000, convertEol: false, allowProposedApi: false, theme: xtermTheme(themes.current) }); if (globalThis.FitAddon?.FitAddon) { ide.fit = new FitAddon.FitAddon(); ide.xterm.loadAddon(ide.fit); } ide.xterm.open($('#terminal-host')); ide.xterm.onData(data => { if (ide.terminal?.status !== 'running') return; ide.inputBuffer += data; if (!ide.inputTimer) ide.inputTimer = setTimeout(flushTerminalInput, 20); }); }
@@ -1750,7 +1771,7 @@ $('#messages').addEventListener('touchstart', () => { ui.touching = true; }, { p
 for (const type of ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'blur']) addEventListener(type, () => { const held = ui.pointerDown || ui.touching; ui.pointerDown = false; ui.touching = false; if (held && ui.stuck) requestFrame(); }, { passive: true });
 $('#scroll-bottom').addEventListener('click', scrollToLatest);
 $('#composer').addEventListener('submit', async event => {
-  event.preventDefault(); let text = $('#message-input').value.trim(); if (!text || running(state.session) || ide.terminal?.status === 'running' || state.busy || state.accountSwitchPending) return;
+  event.preventDefault(); let text = $('#message-input').value.trim(); if (!text || running(state.session) || terminalHere() || state.busy || state.accountSwitchPending) return;
   if (!accountReady()) { toast('请先登录 Claude 账号后再开始对话。', true); return; }
   if (/^\/[^\s]+$/.test(text)) { const command = commandsList().find(c => c.slash === text); if (command) { $('#message-input').value = ''; preserveDraft(); resizeInput(); updateControls(); await executeCommand(command); return; } }
   const attachments = ide.attachments.get(state.activeId) || []; if (attachments.length) text += `\n\n引用当前工作区文件：\n${attachments.map(file => `- @${file.path}`).join('\n')}`;

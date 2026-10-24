@@ -135,23 +135,46 @@ test('a single source is rate limited after eight failed logins', async t => {
   assert.equal((await f.request('/api/login', { method: 'POST', body: { password: PASSWORD }, authenticated: false })).status, 429);
 });
 
-test('run slot is reserved before asynchronous persistence and duplicate requests do not spawn twice', async t => {
+test('parallel runs are capped, one per session, with slots reserved before asynchronous persistence', async t => {
   const f = await fixture(t); await f.login();
-  const a = await f.create(), b = await f.create();
-  const [one, two] = await Promise.all([
-    f.request(`/api/sessions/${a.id}/messages`, { method: 'POST', body: { text: '任务一', requestId: 'request-one' } }),
-    f.request(`/api/sessions/${b.id}/messages`, { method: 'POST', body: { text: '任务二', requestId: 'request-two' } }),
-  ]);
-  assert.deepEqual([one.status, two.status].sort(), [202, 409]);
-  assert.equal(f.fake.calls.length, 1);
-  const winner = one.status === 202 ? a : b, requestId = one.status === 202 ? 'request-one' : 'request-two';
-  assert.equal((await f.request(`/api/sessions/${winner.id}/messages`, {
-    method: 'POST', body: { text: '网络重试', requestId },
+  const sessions = [await f.create(), await f.create(), await f.create(), await f.create()];
+  const results = await Promise.all(sessions.map((s, i) => f.request(`/api/sessions/${s.id}/messages`, {
+    method: 'POST', body: { text: `任务${i}`, requestId: `request-${i}` },
+  })));
+  assert.deepEqual(results.map(r => r.status).sort(), [202, 202, 202, 409]);
+  assert.equal(f.fake.calls.length, 3); assert.equal(f.wb.runs.size, 3);
+  assert.match(results.find(r => r.status === 409).body.error, /3 个任务在并行运行/);
+  const index = results.findIndex(r => r.status === 202), first = sessions[index], waiting = sessions[results.findIndex(r => r.status === 409)];
+  // A network retry is accepted without spawning again; a second turn in a running session is refused.
+  assert.equal((await f.request(`/api/sessions/${first.id}/messages`, {
+    method: 'POST', body: { text: '网络重试', requestId: `request-${index}` },
   })).status, 202);
-  assert.equal(f.fake.calls.length, 1);
-  assert.equal((await f.request(`/api/sessions/${winner.id}`, { method: 'PATCH', body: { model: 'opus' } })).status, 409);
-  await f.fake.calls[0].finish();
+  assert.equal((await f.request(`/api/sessions/${first.id}/messages`, { method: 'POST', body: { text: '插队', requestId: 'other' } })).status, 409);
+  assert.equal(f.fake.calls.length, 3);
+  assert.equal((await f.request(`/api/sessions/${first.id}`, { method: 'PATCH', body: { model: 'opus' } })).status, 409);
+  assert.equal((await f.request(`/api/sessions/${waiting.id}`, { method: 'PATCH', body: { model: 'opus' } })).status, 200);
+  // A finished run frees its slot for the session that had to wait.
+  await f.fake.calls.find(c => c.options.cwd.endsWith(first.id)).finish();
+  assert.equal((await f.request(`/api/sessions/${waiting.id}/messages`, { method: 'POST', body: { text: '接上空位' } })).status, 202);
+  assert.equal(f.fake.calls.length, 4); assert.equal(f.wb.runs.size, 3);
+  for (const call of f.fake.calls) await call.finish();
   assert.equal(f.wb.runs.size, 0);
+});
+
+test('a running chat or terminal holds back only its own session', async t => {
+  const f = await fixture(t); await f.login(); const a = await f.create(), b = await f.create(), c = await f.create();
+  assert.equal((await f.request(`/api/sessions/${a.id}/messages`, { method: 'POST', body: { text: 'A 的任务' } })).status, 202);
+  assert.equal((await f.request(`/api/sessions/${a.id}/file`, { method: 'PUT', body: { path: 'a.txt', text: 'a', hash: null } })).status, 409);
+  assert.equal((await f.request(`/api/sessions/${b.id}/file`, { method: 'PUT', body: { path: 'b.txt', text: 'b', hash: null } })).status, 200);
+  assert.equal((await f.request(`/api/sessions/${b.id}`, { method: 'PATCH', body: { effort: 'high' } })).status, 200);
+  const term = await f.request('/api/terminals', { method: 'POST', body: { sessionId: b.id, kind: 'shell' } });
+  assert.equal(term.status, 201);
+  assert.equal((await f.request(`/api/sessions/${b.id}/messages`, { method: 'POST', body: { text: '被自己的终端挡住' } })).status, 409);
+  assert.equal((await f.request(`/api/sessions/${c.id}/messages`, { method: 'POST', body: { text: 'C 的任务' } })).status, 202);
+  assert.equal(f.wb.runs.size, 2);
+  assert.equal((await f.request('/api/terminals/' + term.body.id + '/stop', { method: 'POST', body: {} })).status, 200);
+  await f.wb.terminals.get(term.body.id).done;
+  for (const call of f.fake.calls) await call.finish();
 });
 
 test('approval is bound to an existing request and is processed at most once', async t => {
@@ -314,6 +337,18 @@ test('timeout and CLI errors remain errors after the stop/exit sequence', async 
   assert.equal(f.wb.runs.size, 0);
 });
 
+test('a CLI the host ended after a successful result leaves the session idle, other non-zero exits do not', async t => {
+  const f = await fixture(t); await f.login(); const s = await f.create();
+  await f.request(`/api/sessions/${s.id}/messages`, { method: 'POST', body: { text: '普通任务' } });
+  await f.fake.calls[0].finish({ code: 143, stopped: false, endedAfterResult: true });
+  let current = (await f.request(`/api/sessions/${s.id}`)).body;
+  assert.equal(current.status, 'idle'); assert.equal(current.lastError, null);
+  await f.request(`/api/sessions/${s.id}/messages`, { method: 'POST', body: { text: '再来一次' } });
+  await f.fake.calls[1].finish({ code: 143, stopped: false });
+  current = (await f.request(`/api/sessions/${s.id}`)).body;
+  assert.equal(current.status, 'error'); assert.equal(current.lastError, 'Claude Code 进程已退出，请查看本轮记录后重试。');
+});
+
 test('model lists come from the CLI; Fable and pinned versions are selectable and recorded',async t=>{
  const f=await fixture(t);await f.login();
  assert.deepEqual((await f.request('/api/bootstrap')).body.config.models.map(m=>m.value),['opus','sonnet','fable','haiku']);
@@ -447,9 +482,12 @@ test('session-updated events carry the list summary for status badges', async t 
   const running = await next(data => data.type === 'session-updated' && data.summary?.status === 'running');
   assert.equal(running.sessionId, s.id); assert.equal(running.summary.title, '状态同步');
   assert.equal('messages' in running.summary, false);
+  // The list is ordered by activeAt, the last message the user sent, so streamed saves don't reorder it.
+  const sent = (await f.request(`/api/sessions/${s.id}`)).body.messages.findLast(m => m.role === 'user').createdAt;
+  assert.equal(running.summary.activeAt, sent);
   await f.fake.calls[0].finish();
   const idle = await next(data => data.type === 'session-updated' && data.summary?.status === 'idle');
-  assert.equal(idle.summary.id, s.id);
+  assert.equal(idle.summary.id, s.id); assert.equal(idle.summary.activeAt, sent);
 });
 
 // Keeps every frame: a match never discards the frames that arrived with it.
@@ -540,4 +578,48 @@ test('pages opened before live patches keep getting debounced session-updated wh
   assert.equal(legacyRest.some(data => data.type === 'session-updated'), false, 'deltas within 350ms share one refetch hint');
   assert.equal(patchedRest.some(data => data.type === 'session-updated'), false, 'patching pages get no refetch hints for streamed text');
   await call.finish();
+});
+
+test('long sessions move older turns to a history file instead of refusing new messages', async t => {
+  const f = await fixture(t); await f.login(); const s = await f.create();
+  const tick = () => new Promise(resolve => setTimeout(resolve, 3));
+  for (let turn = 0; turn < 3; turn++) {
+    assert.equal((await f.request(`/api/sessions/${s.id}/messages`, { method: 'POST', body: { text: `第 ${turn + 1} 轮` } })).status, 202);
+    await tick();
+    const call = f.fake.calls[turn];
+    for (let i = 0; i < 200; i++) call.emit({ type: 'message', id: `m${turn}-${i}`, text: i % 2 ? `回复 ${i}` : '' });
+    for (let i = 0; i < 50; i++) call.emit({ type: 'tool', id: `t${turn}-${i}`, name: 'Bash', status: 'completed', output: 'ok' });
+    await call.finish(); await tick();
+  }
+  assert.equal((await f.request(`/api/sessions/${s.id}`)).body.messages.length, 603);
+  // A start that fails after the move keeps the moved records out of the live window.
+  const auth = f.config.monitor.auth; f.config.monitor.auth = async () => ({ loggedIn: false });
+  assert.equal((await f.request(`/api/sessions/${s.id}/messages`, { method: 'POST', body: { text: '未登录时发送' } })).status, 409);
+  f.config.monitor.auth = auth;
+  const failed = (await f.request(`/api/sessions/${s.id}`)).body;
+  assert.equal(failed.messages.length, 201); assert.equal(failed.history.messages, 402); assert.equal(failed.metrics.userMessages, 3);
+  const sent = await f.request(`/api/sessions/${s.id}/messages`, { method: 'POST', body: { text: '第 4 轮' } });
+  assert.equal(sent.status, 202, 'no length cap');
+  f.fake.calls[3].emit({ type: 'tool', id: 't3-0', name: 'Bash', status: 'completed', output: 'ok' });
+  await f.fake.calls[3].finish();
+  const live = (await f.request(`/api/sessions/${s.id}?view=live`)).body;
+  // The window starts at the first user message that still keeps the newest 300 records: turns 3 and 4 stay.
+  assert.deepEqual(live.messages.filter(m => m.role === 'user').map(m => m.text), ['第 3 轮', '第 4 轮']);
+  assert.equal(live.messages.length, 202); assert.equal(live.tools.length, 51);
+  const { until, ...moved } = live.history;
+  assert.deepEqual(moved, { messages: 402, tools: 100, turns: 2, replies: 200, assistantMessages: 400 });
+  assert.equal(until, live.messages[0].createdAt);
+  assert.equal(live.metrics.toolCalls, 151); assert.equal(live.metrics.userMessages, 4);
+  const file = path.join(f.config.dataDir, 'sessions', `${s.id}.history.jsonl`);
+  assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
+  assert.equal((await fs.readFile(file, 'utf8')).trim().split('\n').length, 502);
+  await f.stop(); await f.start();
+  assert.equal((await f.request(`/api/sessions/${s.id}`)).body.messages.length, 202, 'the history file is not loaded as a session');
+  assert.deepEqual((await f.request('/api/sessions')).body.map(x => x.id), [s.id]);
+  const exported = (await f.request(`/api/sessions/${s.id}/export`)).body;
+  assert.equal(exported.messages.length, 604); assert.equal(exported.tools.length, 151);
+  assert.equal(new Set(exported.messages.map(m => m.id)).size, 604);
+  assert.deepEqual(exported.messages.filter(m => m.role === 'user').map(m => m.text), ['第 1 轮', '第 2 轮', '第 3 轮', '第 4 轮']);
+  assert.equal(exported.tools[0].id, 't0-0'); assert.equal(exported.tools.at(-1).id, 't3-0');
+  assert.equal('kind' in exported.messages[0], false);
 });

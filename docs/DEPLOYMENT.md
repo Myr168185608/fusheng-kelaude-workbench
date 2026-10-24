@@ -109,7 +109,7 @@ systemctl --user status fusheng-kelaude-workbench
 
 | 项目 | 要求 |
 | --- | --- |
-| 服务器 | 你拥有管理权限的 Linux 服务器，建议 2 核 / 2 GB 内存以上 |
+| 服务器 | 你拥有管理权限的 Linux 服务器，建议 2 核 / 2 GB 内存以上。默认允许 3 个会话并行，每个 Claude Code 进程约 300–500 MB；2 GB 内存的机器建议设置 `WORKBENCH_MAX_RUNS=1` 或 `2` |
 | 所在地区 | **你本人与服务器都位于 [Anthropic 支持的国家和地区](https://www.anthropic.com/supported-countries)** |
 | 账号 | 你自己的 Claude 账号，能在服务器上正常登录官方 Claude Code |
 | 软件 | Node.js ≥ 20、npm、git、python3（网页终端需要） |

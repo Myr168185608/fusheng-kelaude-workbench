@@ -77,13 +77,13 @@
 | --- | --- |
 | `managesExecutionContext: true` | 返回对象声明本插件会改变执行配置；宿主在调用其 `beforeRun` 前先持久保存会话归属，避免部分准备失败后丢失配置保护 |
 | `call(method, params)` | 只处理本插件白名单方法；需要执行或修改运行状态时，使用 `context.withExclusive(fn)`，并在异步动作前后检查 `context.isActive()` |
-| `beforeRun({session,cwd,request,run,kind})` | 宿主已持全局执行锁，不应再次拿锁；当前可返回 `{runnerOptions:{configDir},ownsContext}`，`configDir` 必须是绝对路径 |
+| `beforeRun({session,cwd,request,run,kind})` | 宿主已为这个会话占好运行位，不应再次拿锁。不同会话可以并行运行，其他会话的任务可能正在进行，也可能紧接着调用 `beforeRun`；需要串行的插件状态请自己排队（例如账号插件的操作队列）。独占操作进行期间宿主不会开始新的一轮。当前可返回 `{runnerOptions:{configDir},ownsContext}`，`configDir` 必须是绝对路径 |
 | `onEvent(payload)` | 按原运行顺序接收事件；不得把未知或旧轮次事件写入当前检查点 |
 | `onExit(payload)` / `onStop(payload)` | 记录结束、手动停止或服务中断；是否恢复属于插件策略 |
 | `executionStatus()` | 返回 `{ready: true \| false \| null, label, detail}`，仅报告就绪状态，不暴露凭据 |
 | `close()` | 停止插件自己的队列与监控，等待必要持久化，不影响其他插件 |
 
-`context` 提供该插件私有 `dataDir`、`binary`、`workspaceRoot`、`getSession`、`listSessions`、`startTurn`、`isBusy`、`isClosing`、`withExclusive`、`isActive` 和 `runtimeChanged()`。改变登录状态或执行设置后调用 `runtimeChanged()`，通知页面重新读取就绪状态；宿主聚合的结果通过 `bootstrap.execution` 提供。恢复启动必须走 `startTurn`，继续复用底座的账号预检、共享执行锁与原有权限模式；不要另起绕过宿主的任务进程。
+`context` 提供该插件私有 `dataDir`、`binary`、`workspaceRoot`、`getSession`、`listSessions`、`startTurn`、`isBusy`、`isClosing`、`withExclusive`、`isActive` 和 `runtimeChanged()`。改变登录状态或执行设置后调用 `runtimeChanged()`，通知页面重新读取就绪状态；宿主聚合的结果通过 `bootstrap.execution` 提供。`isBusy()` 在任何任务、终端或文件/配置操作进行时为真；`withExclusive(fn)` 要等它们全部结束才执行，执行期间宿主拒绝新任务。恢复启动必须走 `startTurn`，继续复用底座的账号预检、按会话的运行占位、并行上限与原有权限模式；不要另起绕过宿主的任务进程。
 
 后端数据在 `<WORKBENCH_DATA>/server-plugin-data/<id>/`，与普通 SDK 的 256 KB `storage` 分开。账号元数据和续跑检查点使用原子 JSON 写入；官方 CLI 自己管理额外账号配置内的认证材料。只有本插件所需的状态通过受权限控制的 API 返回给界面，不把原始会话或认证材料作为通用 SDK 数据提供。
 

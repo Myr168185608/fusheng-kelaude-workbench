@@ -15,6 +15,12 @@ const write=(m)=>process.stdout.write(JSON.stringify(m)+'\\n');
 const mode=process.env.FIXTURE_MODE;
 const session='${SESSION}';
 const finish=(is_error=false)=>write({type:'result',uuid:'result-1',session_id:session,subtype:is_error?'error_during_execution':'success',is_error,result:is_error?undefined:'完成',errors:is_error?['模型暂时不可用']:undefined,duration_ms:1234,duration_api_ms:900,total_cost_usd:0.15,usage:{input_tokens:2,output_tokens:3},modelUsage:{'claude-sonnet-test':{inputTokens:40,outputTokens:20,cacheReadInputTokens:100,cacheCreationInputTokens:10,contextWindow:200000,costUSD:0.15}}});
+// Like the real CLI, the state-driven modes report session state only when the host asks for it,
+// and exit 143 on SIGTERM. turnDone records whether input ended only after the whole turn.
+const state=(value)=>{ if(process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS==='1') write({type:'system',subtype:'session_state_changed',state:value,session_id:session}); };
+const said=(uuid,text,extra={})=>write({type:'result',uuid,session_id:session,subtype:'success',is_error:false,result:text,num_turns:1,...extra});
+let turnDone=false;
+if(['orphan-resume','bg-states','late-followup','late-question'].includes(mode)) process.on('SIGTERM',()=>process.exit(143));
 if(mode==='no-thinking-flag'&&process.argv.includes('--thinking-display')) { process.stderr.write("error: unknown option '--thinking-display'\\n"); process.exit(1); }
 else if(mode==='stderr') { process.stderr.write('x'.repeat(12000)+' sk-ant-api03-secret'); process.exitCode=2; }
 else if(mode==='hang') { process.on('SIGTERM',()=>{}); setInterval(()=>{},1000); }
@@ -42,7 +48,7 @@ else {
     write({type:'system',subtype:'session_state_changed',state:'idle',session_id:session});
    }
   } else if(msg.type==='user') {
-   writeFileSync(process.env.FIXTURE_RECORD,JSON.stringify({args:process.argv.slice(2),user:msg,env:{ANTHROPIC_API_KEY:process.env.ANTHROPIC_API_KEY,ANTHROPIC_AUTH_TOKEN:process.env.ANTHROPIC_AUTH_TOKEN,CLAUDE_CODE_OAUTH_TOKEN:process.env.CLAUDE_CODE_OAUTH_TOKEN,HTTPS_PROXY:process.env.HTTPS_PROXY,NO_PROXY:process.env.NO_PROXY}}));
+   writeFileSync(process.env.FIXTURE_RECORD,JSON.stringify({args:process.argv.slice(2),user:msg,env:{ANTHROPIC_API_KEY:process.env.ANTHROPIC_API_KEY,ANTHROPIC_AUTH_TOKEN:process.env.ANTHROPIC_AUTH_TOKEN,CLAUDE_CODE_OAUTH_TOKEN:process.env.CLAUDE_CODE_OAUTH_TOKEN,HTTPS_PROXY:process.env.HTTPS_PROXY,NO_PROXY:process.env.NO_PROXY,CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS:process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS}}));
    write({type:'system',subtype:'init',session_id:session,model:'claude-sonnet-test',apiKeySource:'secret-never-forwarded'});
    if(mode==='malformed') { process.stdout.write('not json\\n'); return; }
    if(mode==='long-line') { process.stdout.write('a'.repeat(4096)); return; }
@@ -65,6 +71,53 @@ else {
    }
    if(mode==='unknown-control') { write({type:'control_request',request_id:'unknown-1',request:{subtype:'unknown_operation'}}); return; }
    if(mode==='error') { finish(true); process.exitCode=1; return; }
+   if(mode==='linger') { finish(); return; }
+   if(mode==='bg-bash') {
+    write({type:'system',subtype:'task_started',task_id:'bg-1',task_type:'local_bash',description:'后台命令'});
+    finish();
+    setTimeout(()=>{
+     write({type:'system',subtype:'task_updated',task_id:'bg-1',patch:{status:'completed'}});
+     write({type:'system',subtype:'task_notification',task_id:'bg-1',status:'completed'});
+     write({type:'result',uuid:'result-2',session_id:session,subtype:'success',is_error:false,result:'后台完成'});
+    },400);
+    return;
+   }
+   if(mode==='orphan-resume') {
+    // Recorded from the real CLI: resuming after a process that left a background task behind
+    // reports that task and an empty zero-turn result before the turn for the new prompt.
+    write({type:'system',subtype:'task_notification',task_id:'orphan-1',status:'stopped'});
+    state('running');
+    said('result-0','',{num_turns:0});
+    setTimeout(()=>{
+     write({type:'assistant',uuid:'resumed-text',session_id:session,message:{id:'message-r',content:[{type:'text',text:'继续完成'}]}});
+     said('result-r','继续完成');
+     turnDone=true;
+     state('idle');
+    },400);
+    return;
+   }
+   if(mode==='bg-states') {
+    state('running');
+    write({type:'system',subtype:'task_started',task_id:'bg-2',task_type:'local_bash',description:'后台命令'});
+    said('result-b1','已在后台运行');
+    state('idle');
+    setTimeout(()=>{
+     write({type:'system',subtype:'task_updated',task_id:'bg-2',patch:{status:'completed'}});
+     write({type:'system',subtype:'task_notification',task_id:'bg-2',status:'completed'});
+     // A moment later the CLI wakes the model for a follow-up turn about the finished task.
+     setTimeout(()=>{
+      state('running');
+      setTimeout(()=>{ said('result-b2','后台完成'); turnDone=true; state('idle'); },300);
+     },50);
+    },300);
+    return;
+   }
+   if(mode==='late-followup'||mode==='late-question') {
+    state('running');
+    said('result-l1','第一轮');
+    state('idle');
+    return;
+   }
    write({type:'system',subtype:'session_state_changed',state:'running',session_id:session});
    if(mode==='long-stream') { write({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'开始'}}}); return; }
    if(mode==='long-tool') { write({type:'assistant',message:{content:[{type:'tool_use',id:'long-tool',name:'Bash',input:{command:'long-running-operation'}}]}}); return; }
@@ -136,6 +189,29 @@ else {
   }
  });
  rl.on('close',()=>{
+  if(mode==='linger') { process.on('SIGTERM',()=>process.exit(143)); setInterval(()=>{},1000); return; }
+  if(mode==='orphan-resume'||mode==='bg-states') {
+   writeFileSync(process.env.FIXTURE_RESPONSE,JSON.stringify({eofAfterTurn:turnDone}));
+   // Like the real CLI, a turn still in progress is finished before exiting.
+   const exitWhenDone=()=>turnDone?process.exit(0):setTimeout(exitWhenDone,20);
+   exitWhenDone();
+   return;
+  }
+  if(mode==='late-followup') {
+   // After input ends, a task the host never saw start reports back and wakes the model.
+   write({type:'system',subtype:'task_notification',task_id:'unseen-1',status:'completed'});
+   state('running');
+   setTimeout(()=>{ said('result-l2','后续完成'); state('idle'); setTimeout(()=>process.exit(0),20); },400);
+   return;
+  }
+  if(mode==='late-question') {
+   // The same, but the follow-up turn asks a question that can no longer be answered.
+   state('running');
+   write({type:'control_request',request_id:'late-question-1',request:{subtype:'can_use_tool',tool_name:'AskUserQuestion',tool_use_id:'late-question-tool',input:{questions:[{question:'继续吗？',header:'确认',options:[{label:'是',description:'继续'},{label:'否',description:'停止'}],multiSelect:false}]}}});
+   state('requires_action');
+   setInterval(()=>{},1000);
+   return;
+  }
   if(mode==='slow-close') {
    write({type:'system',subtype:'task_notification',task_id:'closing',status:'completed'});
    setTimeout(()=>process.exit(),100);
@@ -152,7 +228,7 @@ async function setup(t, mode = 'normal', extra = {}) {
   await chmod(binary, 0o700);
   const events = [], exits = [];
   const config = { cwd, binary, prompt: '测试输入', timeoutMs: 10000, initializationTimeoutMs: 5000,
-    killGraceMs: 100, exitGraceMs: 100,
+    killGraceMs: 100, exitGraceMs: 100, taskSettleMs: 200,
     env: { FIXTURE_MODE: mode, FIXTURE_RECORD: join(cwd, 'record.json'), FIXTURE_RESPONSE: join(cwd, 'response.json'), ...extra.env },
     onEvent: (e) => { events.push(e); extra.onEvent?.(e); }, onExit: (e) => exits.push(e), ...extra };
   // Keep the recorder even if the test supplies an event observer.
@@ -382,6 +458,7 @@ test('resume is a UUID argument; injected credential overrides are stripped whil
   assert.equal(record.env.ANTHROPIC_AUTH_TOKEN, undefined);
   assert.equal(record.env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
   assert.equal(record.env.HTTPS_PROXY, 'http://proxy.example:8080');
+  assert.equal(record.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS, '1');
 });
 
 test('error result and failing exit do not produce duplicate errors or usage', async (t) => {
@@ -502,6 +579,60 @@ test('completed execution cannot time out while the CLI closes its input', async
   assert.equal(exit.code, 0);
   assert.equal(exit.timedOut, false);
   assert.equal(events.some(event => event.type === 'error'), false);
+});
+
+test('background Bash keeps the CLI alive until it reports back after the first result', async t => {
+  const { run, events } = await setup(t, 'bg-bash');
+  const exit = await run.done;
+  assert.equal(exit.code, 0);
+  assert.equal(exit.result.result, '后台完成');
+  assert.equal(events.some(event => event.type === 'error'), false);
+});
+
+test('a CLI that lingers after a successful result is ended without reporting exit 143', async t => {
+  const { run, events } = await setup(t, 'linger');
+  const exit = await run.done;
+  assert.equal(exit.code, 143);
+  assert.equal(exit.stopped, false);
+  assert.equal(exit.endedAfterResult, true);
+  assert.equal(events.some(event => event.type === 'error'), false);
+  assert.equal(events.filter(event => event.type === 'done').at(-1).isError, false);
+});
+
+test('a resumed session that first reports an empty result for leftover work keeps its input until the turn is idle', async t => {
+  const { run, events, cwd } = await setup(t, 'orphan-resume', { sessionId: SESSION });
+  const exit = await run.done;
+  assert.equal(exit.code, 0);
+  assert.equal(exit.result.result, '继续完成');
+  assert.equal(events.some(event => event.type === 'error'), false);
+  assert.deepEqual(JSON.parse(await readFile(join(cwd, 'response.json'), 'utf8')), { eofAfterTurn: true });
+});
+
+test('a background task that finishes while idle keeps input open for the follow-up turn', async t => {
+  const { run, events, cwd } = await setup(t, 'bg-states', { taskSettleMs: 1000 });
+  const exit = await run.done;
+  assert.equal(exit.code, 0);
+  assert.equal(exit.result.result, '后台完成');
+  assert.equal(events.some(event => event.type === 'error'), false);
+  assert.deepEqual(JSON.parse(await readFile(join(cwd, 'response.json'), 'utf8')), { eofAfterTurn: true });
+});
+
+test('a follow-up turn after input ends is not cut short by the exit deadline', async t => {
+  const { run, events } = await setup(t, 'late-followup');
+  const exit = await run.done;
+  assert.equal(exit.code, 0);
+  assert.equal(exit.result.result, '后续完成');
+  assert.equal(events.some(event => event.type === 'error'), false);
+});
+
+test('a question asked after input ends is cancelled with a clear error instead of hanging', async t => {
+  const { run, events } = await setup(t, 'late-question');
+  const exit = await run.done;
+  assert.equal(exit.code, 143);
+  assert.equal(exit.endedAfterResult, undefined);
+  assert.deepEqual(events.filter(event => event.type === 'error').map(event => event.message),
+    ['Claude Code 在输入结束后仍在等待确认，已结束进程。']);
+  assert.equal(events.filter(event => event.type === 'permission_cancelled').length, 1);
 });
 
 test('cancelling a waiting task does not become a timeout during process cleanup', async t => {

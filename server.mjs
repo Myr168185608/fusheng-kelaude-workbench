@@ -37,7 +37,14 @@ export async function createWorkbench(options={}){
  const usage=options.usageMonitor||new UsageMonitor({binary,cwd:workspaceRoot,onUpdate:snapshot=>event({type:'usage',usage:snapshot})});
  const terminals=options.terminals||new TerminalManager({binary,onUpdate:terminals=>event({type:'terminals',terminals})});
  const busy=()=>Boolean(runs.size||terminals.active||mutations.size);
- async function withExclusive(action){if(shuttingDown)throw new PluginError(503,'工作台正在关闭。');if(busy())throw new PluginError(409,'请等待当前任务、终端或配置操作结束。');const key=Symbol('extension');mutations.add(key);try{return await action();}finally{mutations.delete(key);}}
+ // Up to maxRuns conversations run side by side, each with its own workspace and Claude process.
+ // One session still runs one turn at a time; exclusive operations (plugin changes, account probes)
+ // wait for every task and terminal, and hold back new ones while they run.
+ const maxRuns=Math.max(1,Math.min(6,Math.floor(Number(options.maxConcurrentRuns??process.env.WORKBENCH_MAX_RUNS))||3));
+ const EXCLUSIVE='exclusive',locked=()=>mutations.has(EXCLUSIVE);
+ const sessionBusy=id=>Boolean(runs.has(id)||terminals.active?.sessionId===id||mutations.has(id));
+ const runBlocked=s=>locked()?'插件或配置操作正在进行，请完成后再开始任务。':sessionBusy(s.id)?'这个会话的任务或终端仍在运行。请等待完成，或先停止它。':runs.size>=maxRuns?`已有 ${maxRuns} 个任务在并行运行。请等其中一个完成，或先停止一个。`:null;
+ async function withExclusive(action){if(shuttingDown)throw new PluginError(503,'工作台正在关闭。');if(busy())throw new PluginError(409,'请等待当前任务、终端或配置操作结束。');mutations.add(EXCLUSIVE);try{return await action();}finally{mutations.delete(EXCLUSIVE);}}
  const serverPlugins=new ServerPluginHost({manager:plugins,dataDir,context:{binary,workspaceRoot,getSession:id=>store.get(id),listSessions:()=>[...store.sessions.values()],startTurn,isBusy:busy,isClosing:()=>shuttingDown,withExclusive,runtimeChanged:()=>event({type:'runtime-updated'})}});
  const effortLevels=['auto','low','medium','high','xhigh','max'];
  const app=express();app.disable('x-powered-by');
@@ -67,7 +74,7 @@ export async function createWorkbench(options={}){
   const [system,account]=await Promise.all([monitor.sample(runs.size+(terminals.active?1:0)),monitor.auth()]);
   const execution=await serverPlugins.executionStatus(account);
   void usage.refresh().catch(()=>{});
-  res.json({execution,user:req.login.user,csrfToken:req.login.csrfToken,sessions:store.list(),system,account,usage:usage.read(),terminals:terminals.list(),config:{version,release,models:catalog.list(),effortLevels,workspaceRoot,rootOperations:process.env.WORKBENCH_ROOT_OPERATIONS==='1',maxConcurrentRuns:1,maxMessageLength:30000,usageSource:'official-cli',costBasis:'API 等价估算，非 Pro 账单',privateWorkspace:true,plugins:{safeMode:plugins.safeMode,workshop:Boolean(plugins.workshopUrl),sdkVersion:1}}});
+  res.json({execution,user:req.login.user,csrfToken:req.login.csrfToken,sessions:store.list(),system,account,usage:usage.read(),terminals:terminals.list(),config:{version,release,models:catalog.list(),effortLevels,workspaceRoot,rootOperations:process.env.WORKBENCH_ROOT_OPERATIONS==='1',maxConcurrentRuns:maxRuns,maxMessageLength:30000,usageSource:'official-cli',costBasis:'API 等价估算，非 Pro 账单',privateWorkspace:true,plugins:{safeMode:plugins.safeMode,workshop:Boolean(plugins.workshopUrl),sdkVersion:1}}});
  });
  app.get('/api/usage',async(req,res)=>{await usage.refresh({force:req.query.refresh==='1'}).catch(()=>{});res.json(usage.read());});
  app.get('/api/sessions',(req,res)=>res.json(store.list()));
@@ -76,7 +83,7 @@ export async function createWorkbench(options={}){
  const tick=setInterval(async()=>{try{event({type:'system',system:await monitor.sample(runs.size+(terminals.active?1:0))});if(clients.size&&!shuttingDown&&++usageTick%6===0)void usage.refresh().catch(()=>{});}catch{}},15000);tick.unref();
  app.post('/api/sessions',async(req,res)=>{if(store.sessions.size>=500)return send(res,409,'已达到 500 个会话，请先导出和整理历史。');const {title,model='sonnet',permissionMode='bypassPermissions',effort='auto'}=req.body||{};if(!isModel(model)||!effortLevels.includes(effort)||!['bypassPermissions','default','plan'].includes(permissionMode))return send(res,400,'模型或权限模式不支持。');if(title!=null&&(typeof title!=='string'||title.length>100))return send(res,400,'标题过长。');const s=newSession({title:title?.trim()||'新的对话',model,permissionMode,effort});await fs.mkdir(path.join(workspaceRoot,s.id),{mode:0o700});await store.save(s);notify(s.id,true);res.status(201).json(sessionView(s));});
  app.use('/api/sessions/:id',(req,res,next)=>{req.session=store.get(req.params.id);if(!req.session)return send(res,404,'会话不存在。');next();});
- registerIDE(app,{store,workspaceRoot,terminals,runs,mutations,send,auth,clients,event,isClosing:()=>shuttingDown,prepareTerminal:async(session,cwd,kind)=>kind==='claude'?serverPlugins.prepare({session,cwd,request:{source:'terminal'},run:{messageId:randomUUID()},kind:'terminal'}):{}});
+ registerIDE(app,{store,workspaceRoot,terminals,runs,mutations,send,auth,clients,event,isClosing:()=>shuttingDown,isLocked:locked,prepareTerminal:async(session,cwd,kind)=>kind==='claude'?serverPlugins.prepare({session,cwd,request:{source:'terminal'},run:{messageId:randomUUID()},kind:'terminal'}):{}});
  app.get('/api/sessions/:id',(req,res)=>res.json(req.query.view==='live'?{...liveSession(req.session),live:feed.info(req.session.id)}:sessionView(req.session)));
  app.get('/api/sessions/:id/tools/:toolId',(req,res)=>{const tool=req.session.tools?.find(t=>t.id===req.params.toolId);if(!tool)return send(res,404,'工具记录不存在。');res.json(tool);});
  app.patch('/api/sessions/:id',async(req,res)=>{
@@ -86,7 +93,7 @@ export async function createWorkbench(options={}){
  if('model'in b&&!isModel(b.model))return send(res,400,'不支持该模型。');
  if('effort'in b&&!effortLevels.includes(b.effort))return send(res,400,'不支持该思考等级。');
  if('permissionMode'in b&&!['bypassPermissions','default','plan'].includes(b.permissionMode))return send(res,400,'不支持该权限模式。');
- if(runs.has(s.id)||terminals.active?.sessionId===s.id||mutations.size)return send(res,409,'请先停止当前任务或终端，再修改会话。');
+ if(sessionBusy(s.id)||locked())return send(res,409,'请先停止当前任务或终端，再修改会话。');
  for(const key of ['title','archived','model','effort','permissionMode'])if(key in b)s[key]=key==='title'?b[key].trim():b[key];
  await store.save(s);notify(s.id,true);res.json(sessionView(s));
  });
@@ -94,9 +101,8 @@ export async function createWorkbench(options={}){
   const {requestId}=request,fail=(code,msg)=>({code,msg});
   if(shuttingDown)return fail(503,'工作台正在重启，请稍后重试。');
   if(requestId&&s._requestIds?.includes(requestId))return {code:202};
-  if(busy())return fail(409,'另一项任务正在运行。请等待完成，或先停止当前任务。');
+  const blocked=runBlocked(s);if(blocked)return fail(409,blocked);
   if(s.archived)return fail(409,'请先恢复归档会话。');
-  if(s.messages.length>=1000)return fail(409,'此会话过长，请新建会话继续。');
   // The reservation and completion include asynchronous preflight and persistence.
   let resolveDone, finished=false, staged=null;
   const run={messageId:randomUUID(),usageBase:{...s.metrics},startedAt:Date.now(),handle:null,done:new Promise(resolve=>{resolveDone=resolve;})};
@@ -110,7 +116,7 @@ export async function createWorkbench(options={}){
      s.permissions=[];
      if(result.timedOut||result.stopReason==='error'||s.status==='error')s.status='error';
      else if(result.stopped){s.status='idle';s.events.push({type:'stopped',time:now(),message:'任务已停止。'});}
-     else if(result.code!==0){s.status='error';s.lastError=s.lastError||'Claude Code 进程已退出，请查看本轮记录后重试。';}
+     else if(result.code!==0&&!result.endedAfterResult){s.status='error';s.lastError=s.lastError||'Claude Code 进程已退出，请查看本轮记录后重试。';}
      else s.status='idle';
      s.metrics.durationMs=Math.max(s.metrics.durationMs,run.usageBase.durationMs+Date.now()-run.startedAt);
     }
@@ -119,6 +125,9 @@ export async function createWorkbench(options={}){
    }finally{runs.delete(s.id);notify(s.id,true);resolveDone();}
   }
   try{
+   // Long sessions move older records out of the live window instead of refusing new turns.
+   // This runs before the preflight snapshot, so a failed start never restores moved records.
+   await store.trimHistory(s).catch(()=>console.error('Session history trim failed'));
    const cwd=path.join(workspaceRoot,s.id);
    const extensionOptions=await serverPlugins.prepare({session:s,cwd,request:{...request,text},run});
    if(!extensionOptions.configDir){const account=await monitor.auth().catch(()=>null);if(account&&account.loggedIn===false)throw new PluginError(409,'Claude Code 尚未登录。请先在服务器完成官方登录，再发送任务。');}
@@ -170,9 +179,9 @@ export async function createWorkbench(options={}){
  s.events.push({type:'approval',time:now(),toolName:p.toolName,allow:req.body.allow});await store.save(s);notify(s.id,true);res.json(sessionView(s));
  });
  app.post('/api/sessions/:id/tasks/:taskId/stop',(req,res)=>{const task=req.session.tasks?.find(t=>t.id===req.params.taskId),r=runs.get(req.session.id);if(!task||!r?.handle?.stopTask||r.handle.stopTask(task.id)===false)return send(res,409,'此后台任务无法停止或已结束。');res.status(202).json({ok:true});});
- app.get('/api/sessions/:id/export',(req,res)=>{res.setHeader('Content-Disposition',`attachment; filename="claude-${req.session.id}.json"`);res.json(publicSession(req.session));});
+ app.get('/api/sessions/:id/export',async(req,res)=>{let full;try{full=await store.fullHistory(req.session);}catch{return send(res,500,'读取历史记录失败，请稍后重试。');}res.setHeader('Content-Disposition',`attachment; filename="claude-${req.session.id}.json"`);res.json({...publicSession(req.session),...full});});
  // Per-session totals for plugins with the sessions.read permission: summaries and counters only, never message content.
- app.get('/api/stats',(req,res)=>{const keys=['turns','toolCalls','inputTokens','outputTokens','cacheReadTokens','cacheWriteTokens','costUsd','durationMs','apiDurationMs','contextTokens','contextWindow'];res.json({generatedAt:now(),sessions:[...store.sessions.values()].map(s=>({...summary(s),metrics:Object.fromEntries(keys.map(k=>[k,typeof s.metrics?.[k]==='number'?s.metrics[k]:null]))}))});});
+ app.get('/api/stats',(req,res)=>{const keys=['turns','toolCalls','inputTokens','outputTokens','cacheReadTokens','cacheWriteTokens','costUsd','durationMs','apiDurationMs','contextTokens','contextWindow'];res.json({generatedAt:now(),sessions:[...store.sessions.values()].map(s=>{const {activeAt,...view}=summary(s);return {...view,metrics:Object.fromEntries(keys.map(k=>[k,typeof s.metrics?.[k]==='number'?s.metrics[k]:null]))};})});});
  const pluginRoute=handler=>async(req,res)=>{try{res.json(await handler(req));}catch(error){if(error instanceof PluginError||(error.status>=400&&error.status<500))return send(res,error.status,error.message);throw error;}};
  app.get('/api/plugins',(req,res)=>res.json(serverPlugins.list()));
  app.post('/api/plugins/rescan',pluginRoute(()=>withExclusive(async()=>{await plugins.lock(()=>plugins.scan());await serverPlugins.reconcile();event({type:'runtime-updated'});return serverPlugins.list();})));

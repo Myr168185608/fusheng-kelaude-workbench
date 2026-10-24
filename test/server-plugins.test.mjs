@@ -212,6 +212,23 @@ test('both plugins retain an isolated account and official session through check
   await next.finish(); assert.equal((await f.backend('task-resume', 'list')).body.tasks[0].state, 'completed');
 });
 
+test('parallel runs use their own account profiles; exclusive plugin operations still wait for every task and hold back new ones', async t => {
+  const f = await fixture(t); await f.login(); await f.enable('account-pool');
+  const one = await f.account('Parallel one'), two = await f.account('Parallel two'), a = await f.create(), b = await f.create();
+  await f.backend('account-pool', 'bind', { sessionId: a.id, accountId: one.id }); await f.backend('account-pool', 'bind', { sessionId: b.id, accountId: two.id });
+  assert.equal((await f.send(a)).status, 202); assert.equal((await f.send(b)).status, 202);
+  assert.deepEqual(f.fake.calls.map(call => call.options.configDir), [one.profile, two.profile]);
+  // Account changes still need every task to finish first.
+  assert.equal((await f.backend('account-pool', 'create', { label: 'During runs' })).status, 409);
+  for (const call of f.fake.calls) await call.finish();
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const holding = f.wb.serverPlugins.context.withExclusive(() => gate);
+  const refused = await f.send(a); assert.equal(refused.status, 409); assert.match(refused.body.error, /插件或配置操作/);
+  assert.equal((await f.api(`/api/sessions/${b.id}/file`, { method: 'PUT', body: { path: 'note.txt', text: 'x', hash: null } })).status, 409);
+  release(); await holding;
+  assert.equal((await f.send(a)).status, 202); assert.equal(f.fake.calls.length, 3); await f.fake.calls[2].finish();
+});
+
 test('two simultaneous resume requests reserve only one execution slot', async t => {
   const f = await fixture(t); await f.login(); await f.enable('task-resume'); const s = await f.create();
   await f.send(s); f.fake.calls[0].emit({ type: 'session', sessionId: randomUUID() });
