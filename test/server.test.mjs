@@ -623,3 +623,31 @@ test('long sessions move older turns to a history file instead of refusing new m
   assert.equal(exported.tools[0].id, 't0-0'); assert.equal(exported.tools.at(-1).id, 't3-0');
   assert.equal('kind' in exported.messages[0], false);
 });
+
+test('a turn with more records than the page keeps stays whole when older turns move out', async t => {
+  const f = await fixture(t); await f.login(); const s = await f.create();
+  const tick = () => new Promise(resolve => setTimeout(resolve, 3));
+  const turn = async (n, replies, tools) => {
+    assert.equal((await f.request(`/api/sessions/${s.id}/messages`, { method: 'POST', body: { text: `第 ${n} 轮` } })).status, 202);
+    await tick();
+    const call = f.fake.calls.at(-1);
+    for (let i = 0; i < replies; i++) call.emit({ type: 'message', id: `m${n}-${i}`, text: `回复 ${i}` });
+    for (let i = 0; i < tools; i++) call.emit({ type: 'tool', id: `t${n}-${i}`, name: 'Bash', status: 'completed', output: 'ok' });
+    await call.finish(); await tick();
+  };
+  const live = async () => (await f.request(`/api/sessions/${s.id}?view=live`)).body;
+  // One turn past the limit has nothing older to move: it stays on the page in full.
+  await turn(1, 650, 0); await turn(2, 400, 350);
+  let view = await live();
+  assert.equal(view.history, undefined); assert.equal(view.messages.length, 1052);
+  // The cut for both messages and tools now falls inside turn 2, the newest one: only turn 1 moves.
+  await turn(3, 1, 0);
+  view = await live();
+  assert.deepEqual(view.messages.filter(m => m.role === 'user').map(m => m.text), ['第 2 轮', '第 3 轮']);
+  assert.equal(view.messages[0].text, '第 2 轮'); assert.equal(view.messages.length, 403); assert.equal(view.tools.length, 350);
+  const { until, ...moved } = view.history;
+  assert.deepEqual(moved, { messages: 651, tools: 0, turns: 1, replies: 650, assistantMessages: 650 });
+  assert.equal(until, view.messages[0].createdAt);
+  const exported = (await f.request(`/api/sessions/${s.id}/export`)).body;
+  assert.equal(exported.messages.length, 1054); assert.equal(exported.tools.length, 350);
+});
