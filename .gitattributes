@@ -2,3 +2,10 @@
 workshop/packages/*.json -text
 workshop/registry.json text eol=lf
 workshop/src/** text eol=lf
+# Images and fonts in a work are bytes: line-ending conversion would corrupt them.
+workshop/src/**/*.png binary
+workshop/src/**/*.webp binary
+workshop/src/**/*.gif binary
+workshop/src/**/*.jpg binary
+workshop/src/**/*.jpeg binary
+workshop/src/**/*.woff2 binary

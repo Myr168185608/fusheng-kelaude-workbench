@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "浮生氪劳德工作台 · 创意工坊",
-  "updatedAt": "2026-10-22T21:26:08.924Z",
+  "updatedAt": "2026-10-27T07:03:47.790Z",
   "items": [
     {
       "id": "account-pool",
@@ -133,6 +133,35 @@
       "official": true,
       "bundled": true,
       "minVersion": "1.1.0"
+    },
+    {
+      "id": "claude-tan",
+      "type": "plugin",
+      "name": "Claude 娘",
+      "version": "2.0.0",
+      "description": "橙发呆毛、星芒发饰的 Claude 娘立绘桌宠：会眨眼说话，跟着任务思考、敲代码、举手提问、欢呼庆祝，额度紧张时劝你歇一歇。摸摸头，好感会越来越高。",
+      "author": "浮生氪劳德工作台",
+      "tags": [
+        "宠物",
+        "陪伴",
+        "趣味"
+      ],
+      "permissions": [
+        "activity",
+        "storage",
+        "usage.read"
+      ],
+      "icon": "✻",
+      "accent": "#d97757",
+      "surfaces": [
+        "overlay"
+      ],
+      "official": true,
+      "bundled": false,
+      "minVersion": "1.1.0",
+      "path": "packages/claude-tan-2.0.0.json",
+      "sha256": "40abecac46e3579318d38dd751f7066805b4fb41784640333e287d812f934c38",
+      "size": 509728
     },
     {
       "id": "focus-timer",

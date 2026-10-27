@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { createWorkbench } from '../server.mjs';
 import { hashPassword } from '../lib/auth.mjs';
 
@@ -16,7 +17,7 @@ function fakeRunner() {
   function factory(options) {
     let finish, finished = false;
     const permissions = new Set();
-    const call = { options, stops: 0, approvals: [] };
+    const call = { options, stops: 0, approvals: [], steers: [], steerReply: null };
     const done = new Promise(resolve => { finish = resolve; });
     call.emit = event => {
       if (event.type === 'permission') permissions.add(event.id);
@@ -33,6 +34,10 @@ function fakeRunner() {
     call.handle = {
       done,
       stop() { call.stops++; void call.finish({ code: null, stopped: true }); return true; },
+      steer(text) {
+        if (call.steerReply) return call.steerReply;
+        const id = randomUUID(); call.steers.push({ id, text }); return { ok: true, id };
+      },
       respondPermission(id, allow) {
         if (!permissions.delete(id)) return false;
         call.approvals.push({ id, allow });
@@ -214,6 +219,49 @@ test('stopping an active run calls its handle and clears pending approvals', asy
   assert.equal(f.wb.runs.size, 0);
   const current = (await f.request(`/api/sessions/${s.id}`)).body;
   assert.equal(current.status, 'idle'); assert.deepEqual(current.permissions, []);
+});
+
+test('guidance joins the running turn once, follows its delivery and is refused when no turn can take it', async t => {
+  const f = await fixture(t); await f.login(); const s = await f.create();
+  const steer = body => f.request(`/api/sessions/${s.id}/steer`, { method: 'POST', body });
+  const view = async () => (await f.request(`/api/sessions/${s.id}`)).body;
+  assert.equal((await steer({ text: '改用 pnpm' })).status, 409);
+  await f.request(`/api/sessions/${s.id}/messages`, { method: 'POST', body: { text: '安装依赖' } });
+  const call = f.fake.calls[0];
+  assert.equal((await steer({ text: '  ' })).status, 400);
+  assert.equal((await steer({ text: ' 改用 pnpm ', requestId: 'steer-1' })).status, 202);
+  assert.equal((await steer({ text: '改用 pnpm', requestId: 'steer-1' })).status, 202);
+  assert.deepEqual(call.steers.map(x => x.text), ['改用 pnpm']);
+  let current = await view();
+  assert.equal(current.status, 'running');
+  assert.deepEqual(current.messages.filter(m => m.role === 'user').map(m => [m.text, m.steer]), [['安装依赖', undefined], ['改用 pnpm', 'queued']]);
+  assert.equal(current.messages.at(-1).id, call.steers[0].id);
+  assert.equal(current.metrics.turns, 1); assert.equal(current.metrics.userMessages, 2);
+  call.emit({ type: 'steer', id: call.steers[0].id, state: 'delivered' });
+  assert.equal((await steer({ text: '顺便跑测试' })).status, 202);
+  call.steerReply = { ok: false, reason: 'ending' };
+  const late = await steer({ text: '再加文档' });
+  assert.equal(late.status, 409); assert.match(late.body.error, /收尾/);
+  await call.finish();
+  current = await view();
+  assert.equal(current.status, 'idle');
+  assert.deepEqual(current.messages.filter(m => m.steer).map(m => [m.text, m.steer]), [['改用 pnpm', 'delivered'], ['顺便跑测试', 'dropped']]);
+  assert.equal((await steer({ text: '再加文档' })).status, 409);
+});
+
+test('moving old history out never starts a turn at guidance sent during it', async t => {
+  const { newSession, Store } = await import('../lib/state.mjs');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-workbench-steer-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const store = new Store(dir), t0 = Date.parse('2026-10-27T00:00:00.000Z'), at = i => new Date(t0 + i * 1000).toISOString();
+  const trimmed = newSession();
+  trimmed.messages = [{ id: 'a', role: 'user', text: '第 1 轮', createdAt: at(0) }, { id: 'a1', role: 'assistant', text: '好', createdAt: at(1) },
+    { id: 'b', role: 'user', text: '第 2 轮', createdAt: at(2) }, { id: 'b1', role: 'user', text: '引导', steer: 'delivered', createdAt: at(3) },
+    { id: 'b2', role: 'assistant', text: '好', createdAt: at(4) }, { id: 'c', role: 'user', text: '第 3 轮', createdAt: at(5) }];
+  // The cut falls on the guidance inside turn 2: the window moves to the next turn rather than split turn 2.
+  await store.trimHistory(trimmed, { maxMessages: 4, keepMessages: 3 });
+  assert.deepEqual(trimmed.messages.map(m => m.id), ['c']);
+  assert.equal(trimmed.history.turns, 2);
 });
 
 test('stop requested while the initial save is pending must prevent a later live run', async t => {

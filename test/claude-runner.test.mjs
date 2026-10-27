@@ -19,7 +19,8 @@ const finish=(is_error=false)=>write({type:'result',uuid:'result-1',session_id:s
 // and exit 143 on SIGTERM. turnDone records whether input ended only after the whole turn.
 const state=(value)=>{ if(process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS==='1') write({type:'system',subtype:'session_state_changed',state:value,session_id:session}); };
 const said=(uuid,text,extra={})=>write({type:'result',uuid,session_id:session,subtype:'success',is_error:false,result:text,num_turns:1,...extra});
-let turnDone=false;
+let turnDone=false,prompted=null;
+const life=(uuid,value)=>write({type:'command_lifecycle',command_uuid:uuid,state:value,session_id:session});
 if(['orphan-resume','bg-states','late-followup','late-question'].includes(mode)) process.on('SIGTERM',()=>process.exit(143));
 if(mode==='no-thinking-flag'&&process.argv.includes('--thinking-display')) { process.stderr.write("error: unknown option '--thinking-display'\\n"); process.exit(1); }
 else if(mode==='stderr') { process.stderr.write('x'.repeat(12000)+' sk-ant-api03-secret'); process.exitCode=2; }
@@ -46,6 +47,35 @@ else {
     if(mode==='long-task') write({type:'system',subtype:'task_notification',task_id:'long-task',status:'completed'});
     finish();
     write({type:'system',subtype:'session_state_changed',state:'idle',session_id:session});
+   }
+  } else if(msg.type==='user' && ['steer','steer-late'].includes(mode)) {
+   // Recorded from the real CLI: every command with a uuid reports queued, started and completed.
+   if(!prompted) {
+    prompted=msg.uuid; life(msg.uuid,'queued'); life(msg.uuid,'started');
+    if(mode==='steer') state('running');
+    write({type:'system',subtype:'init',session_id:session,model:'claude-sonnet-test'});
+    if(mode==='steer') write({type:'assistant',uuid:'steer-tool',session_id:session,message:{id:'message-s1',content:[{type:'tool_use',id:'steer-tool',name:'Bash',input:{command:'npm install'}}]}});
+    else write({type:'assistant',uuid:'steer-first',session_id:session,message:{id:'message-s1',content:[{type:'text',text:'第一版'}]}});
+    return;
+   }
+   writeFileSync(process.env.FIXTURE_RESPONSE,JSON.stringify(msg));
+   life(msg.uuid,'queued');
+   if(mode==='steer') setTimeout(()=>{
+    // Taken at the next tool boundary, inside the same turn.
+    write({type:'user',message:{content:[{type:'tool_result',tool_use_id:'steer-tool',content:'ok'}]}});
+    life(msg.uuid,'started');
+    write({type:'assistant',uuid:'steer-reply',session_id:session,message:{id:'message-s2',content:[{type:'text',text:'已按引导调整'}]}});
+    said('result-s','已按引导调整'); life(prompted,'completed'); life(msg.uuid,'completed'); state('idle');
+   },50);
+   else {
+    // Arrived while the reply was written: the reply ends first, then the guidance runs as a follow-up turn.
+    // This CLI reports no session state, so only the queued guidance keeps the host's input open.
+    said('result-1','第一版'); life(prompted,'completed');
+    setTimeout(()=>{
+     life(msg.uuid,'started');
+     write({type:'assistant',uuid:'steer-second',session_id:session,message:{id:'message-s2',content:[{type:'text',text:'按引导改好'}]}});
+     said('result-2','按引导改好'); life(msg.uuid,'completed'); turnDone=true;
+    },150);
    }
   } else if(msg.type==='user') {
    writeFileSync(process.env.FIXTURE_RECORD,JSON.stringify({args:process.argv.slice(2),user:msg,env:{ANTHROPIC_API_KEY:process.env.ANTHROPIC_API_KEY,ANTHROPIC_AUTH_TOKEN:process.env.ANTHROPIC_AUTH_TOKEN,CLAUDE_CODE_OAUTH_TOKEN:process.env.CLAUDE_CODE_OAUTH_TOKEN,HTTPS_PROXY:process.env.HTTPS_PROXY,NO_PROXY:process.env.NO_PROXY,CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS:process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS}}));
@@ -190,8 +220,9 @@ else {
  });
  rl.on('close',()=>{
   if(mode==='linger') { process.on('SIGTERM',()=>process.exit(143)); setInterval(()=>{},1000); return; }
-  if(mode==='orphan-resume'||mode==='bg-states') {
-   writeFileSync(process.env.FIXTURE_RESPONSE,JSON.stringify({eofAfterTurn:turnDone}));
+  if(mode==='steer-late') { writeFileSync(process.env.FIXTURE_RECORD,JSON.stringify({eofAfterSteer:turnDone})); }
+  if(mode==='orphan-resume'||mode==='bg-states'||mode==='steer-late') {
+   if(mode!=='steer-late') writeFileSync(process.env.FIXTURE_RESPONSE,JSON.stringify({eofAfterTurn:turnDone}));
    // Like the real CLI, a turn still in progress is finished before exiting.
    const exitWhenDone=()=>turnDone?process.exit(0):setTimeout(exitWhenDone,20);
    exitWhenDone();
@@ -587,6 +618,65 @@ test('background Bash keeps the CLI alive until it reports back after the first 
   assert.equal(exit.code, 0);
   assert.equal(exit.result.result, '后台完成');
   assert.equal(events.some(event => event.type === 'error'), false);
+});
+
+test('guidance sent while a tool runs reaches the CLI as a user message and reports when Claude takes it', async t => {
+  const box = {};
+  const { run, events, cwd } = await setup(t, 'steer', { onEvent: e => {
+    if (e.type === 'tool' && e.status === 'running' && !box.sent) box.sent = box.run.steer('改用 pnpm');
+  } });
+  box.run = run;
+  const exit = await run.done;
+  assert.equal(box.sent.ok, true);
+  assert.match(box.sent.id, /^[0-9a-f-]{36}$/);
+  assert.equal(exit.code, 0);
+  assert.equal(exit.result.result, '已按引导调整');
+  const frame = JSON.parse(await readFile(join(cwd, 'response.json'), 'utf8'));
+  assert.deepEqual(frame, { type: 'user', uuid: box.sent.id, session_id: SESSION, parent_tool_use_id: null,
+    message: { role: 'user', content: '改用 pnpm' } });
+  assert.deepEqual(events.filter(e => e.type === 'steer'), [{ type: 'steer', id: box.sent.id, state: 'delivered' }]);
+  assert.equal(events.some(e => e.type === 'error'), false);
+  assert.deepEqual(run.steer('太晚了'), { ok: false, reason: 'ending' });
+});
+
+test('guidance that arrives during the reply keeps input open for its follow-up turn', async t => {
+  const box = {};
+  const { run, events, cwd } = await setup(t, 'steer-late', { onEvent: e => {
+    if (e.type === 'message' && !box.sent) box.sent = box.run.steer('再精简一点');
+  } });
+  box.run = run;
+  const exit = await run.done;
+  assert.equal(box.sent.ok, true);
+  assert.equal(exit.code, 0);
+  assert.equal(exit.result.result, '按引导改好');
+  assert.deepEqual(JSON.parse(await readFile(join(cwd, 'record.json'), 'utf8')), { eofAfterSteer: true });
+  assert.deepEqual(events.filter(e => e.type === 'steer').map(e => e.state), ['delivered']);
+});
+
+test('guidance is refused before the CLI starts, by a CLI without command lifecycle, and dropped on stop', async t => {
+  const starting = await setup(t, 'steer');
+  assert.deepEqual(starting.run.steer('先别急'), { ok: false, reason: 'starting' });
+  assert.throws(() => starting.run.steer('  '), /Guidance/);
+  assert.throws(() => starting.run.steer('x'.repeat(30_001)), /Guidance/);
+  starting.run.stop();
+  await starting.run.done;
+
+  const box = {};
+  const old = await setup(t, 'long-tool', { onEvent: e => {
+    if (e.type === 'tool' && e.status === 'running' && !box.sent) { box.sent = box.run.steer('换个方向'); box.run.stop(); }
+  } });
+  box.run = old.run;
+  await old.run.done;
+  assert.deepEqual(box.sent, { ok: false, reason: 'unsupported' });
+
+  const stopped = {};
+  const dropped = await setup(t, 'steer', { onEvent: e => {
+    if (e.type === 'tool' && e.status === 'running' && !stopped.sent) { stopped.sent = stopped.run.steer('改用 pnpm'); stopped.run.stop(); }
+  } });
+  stopped.run = dropped.run;
+  await dropped.run.done;
+  assert.equal(stopped.sent.ok, true);
+  assert.deepEqual(dropped.events.filter(e => e.type === 'steer'), [{ type: 'steer', id: stopped.sent.id, state: 'dropped' }]);
 });
 
 test('a CLI that lingers after a successful result is ended without reporting exit 143', async t => {

@@ -161,6 +161,17 @@ export async function createWorkbench(options={}){
  if(r.msg)return send(res,r.code,r.msg);
  res.status(202).json(sessionView(s));
  });
+ // Guidance for the turn in progress: Claude reads it at its next step instead of after the turn.
+ const steerRefused={starting:'任务正在启动，请稍等片刻再发送引导。',ending:'这一轮正在收尾，请等它结束后直接发送。',unsupported:'当前 Claude Code 版本不支持运行中引导，请等本轮结束后再发送。'};
+ app.post('/api/sessions/:id/steer',async(req,res)=>{
+ const s=req.session,text=req.body?.text,requestId=req.body?.requestId,r=runs.get(s.id);
+ if(typeof text!=='string'||!text.trim()||text.length>30000)return send(res,400,'请输入 1–30000 个字符。');
+ if(requestId&&s._requestIds?.includes(String(requestId).slice(0,80)))return res.status(202).json(sessionView(s));
+ if(!r||r.cancelRequested)return send(res,409,'当前没有运行中的任务，可以直接发送消息。');
+ const sent=r.handle?.steer?r.handle.steer(text.trim()):{ok:false,reason:'starting'};if(!sent.ok)return send(res,409,steerRefused[sent.reason]||steerRefused.ending);
+ s.metrics.userMessages++;s.messages.push({id:sent.id,role:'user',text:text.trim(),createdAt:now(),steer:'queued'});if(requestId)s._requestIds=[...(s._requestIds||[]),String(requestId).slice(0,80)].slice(-100);
+ await store.save(s);notify(s.id,true);res.status(202).json(sessionView(s));
+ });
  app.post('/api/sessions/:id/stop',async(req,res)=>{const s=req.session,r=runs.get(s.id);if(r)r.cancelRequested=true;try{await serverPlugins.stop({session:s,run:r,reason:'user'});}finally{r?.handle?.stop();}s.permissions=[];s.events.push({type:'stop_requested',time:now(),message:'正在停止任务…'});await store.save(s);notify(s.id,true);res.json(sessionView(s));});
  app.post('/api/sessions/:id/permissions/:permissionId',async(req,res)=>{
  const s=req.session,r=runs.get(s.id),p=s.permissions.find(x=>x.id===req.params.permissionId);

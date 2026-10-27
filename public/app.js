@@ -37,14 +37,14 @@ const icons = {
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>', 'list-check': '<path d="M11 6h9M11 12h9M11 18h9M3.5 6l1.5 1.5L8 4.5M3.5 12l1.5 1.5L8 10.5M3.5 18l1.5 1.5L8 16.5"/>', list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/>', steps: '<path d="M6 8.5v7"/><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M12 6h8M12 18h8M12 12h5"/>',
   plug: '<path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0V7ZM12 17v5"/>', bell: '<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4"/>', alert: '<path d="M12 3 2 20h20L12 3ZM12 10v4M12 17h.01"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>', 'message-plus': '<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12Z"/><path d="M12 8.5v7M8.5 12h7"/>',
-  'chevron-right': '<path d="m9 6 6 6-6 6"/>', ban: '<circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/>', reply: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>',
+  'chevron-right': '<path d="m9 6 6 6-6 6"/>', ban: '<circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/>', reply: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>', steer: '<path d="M3 11 22 2l-9 19-2-8z"/>',
 };
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] || icons.file}</svg>`;
 const assistantMark = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c.9 5.1 3.9 8.1 9 9-5.1.9-8.1 3.9-9 9-.9-5.1-3.9-8.1-9-9 5.1-.9 8.1-3.9 9-9Z"/><path d="M19.5 2v4M17.5 4h4"/></svg>';
 $$('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); });
 
 const storage = { get(key) { try { return localStorage.getItem(key); } catch { return null; } }, set(key, value) { try { if (value) localStorage.setItem(key, value); else localStorage.removeItem(key); } catch {} } };
-const state = { csrf: '', sessions: [], session: null, activeId: null, system: null, account: null, execution: null, config: {}, archived: false, view: 'chat', source: null, connected: false, authenticated: false, busy: false, renameId: null, sessionRequest: 0, selectionVersion: 0, refreshPending: false, refreshTimer: null, lastBootstrap: 0, syncNeeded: false, draftLoaded: false, pendingSend: null };
+const state = { csrf: '', sessions: [], session: null, activeId: null, system: null, account: null, execution: null, config: {}, archived: false, view: 'chat', source: null, connected: false, authenticated: false, busy: false, renameId: null, sessionRequest: 0, selectionVersion: 0, refreshPending: false, refreshTimer: null, lastBootstrap: 0, syncNeeded: false, draftLoaded: false, pendingSend: null, pendingSteer: null, steering: false };
 const ide = { usage: null, workspaceOpen: false, directory: '', explorer: 'files', entries: [], documents: new Map(), activeDocument: null, editor: null, monacoLoading: null, syncingEditor: false, preview: false, fileRequest: 0, attachments: new Map(), pathAction: null, terminal: null, terminalSource: null, xterm: null, fit: null, terminalKind: 'shell', inputBuffer: '', inputTimer: null, inputPending: false, terminalStarting: false, commandIndex: 0, commands: [], slashIndex: 0 };
 // View state that survives live re-renders: keyed transcript rows, streaming reveal and scroll-follow state,
 // expanded activities/steps, loaded full tool records, sync timers.
@@ -66,6 +66,8 @@ const oneLine = value => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0
 // One-line preview of a markdown reply: headings, list marks, emphasis, code fences and link targets removed.
 const plainLine = value => oneLine(String(value ?? '').replace(/```[^\n]*\n?/g, ' ').replace(/^\s{0,3}(?:#{1,6}|[-*+>]|\d+[.)])\s+/gm, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/(\*\*|__|`)/g, '').replace(/^\s*\|?[-:| ]+\|?\s*$/gm, ' '));
 const running = session => ['running', 'awaiting_approval', 'stopping'].includes(session?.status);
+// Guidance sent during a turn belongs to that turn; only the user's own prompt starts one.
+const turnStart = m => m.role === 'user' && !m.steer;
 const activeDraftKey = () => `cloud-ops-workbench-draft:${state.activeId || 'new'}`;
 const isDirectory = entry => ['directory', 'dir'].includes(entry?.type);
 const shanghaiDay = value => { const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value)).split('-').map(Number); return Date.UTC(parts[0], parts[1] - 1, parts[2]) / 86400000; };
@@ -437,9 +439,10 @@ function splitReferences(text) {
   if (!lines.length || !lines.every(line => /^- @\S/.test(line))) return { body: text, refs: [] };
   return { body: text.slice(0, index), refs: lines.map(line => line.slice(3)) };
 }
+const steerStates = { queued: ['待送达', 'Claude 会在下一步读到这条引导'], delivered: ['已送达', 'Claude 已读到这条引导'], dropped: ['未送达', '任务结束前没能送达，可放回输入框重新发送'] };
 function userMarkup(m) {
-  const { body, refs } = splitReferences(m.text || '');
-  return `<div class="message-content">${escape(body)}${refs.length ? `<div class="message-refs">${refs.map(ref => `<button type="button" class="ref-chip" data-open-path="${escape(ref)}" title="${escape(ref)}">${icon('file')}<span>${escape(ref.split('/').at(-1))}</span></button>`).join('')}</div>` : ''}</div><div class="message-actions"><time>${escape(time(m.createdAt))}</time><button type="button" data-copy-user="${escape(m.id)}" title="复制">${icon('copy')}</button><button type="button" data-reuse-message="${escape(m.id)}" title="放回输入框再次编辑">${icon('reply')}</button></div>`;
+  const { body, refs } = splitReferences(m.text || ''), [label, hint] = steerStates[m.steer] || steerStates.queued;
+  return `${m.steer ? `<div class="steer-tag ${escape(m.steer)}" title="${escape(hint)}">${icon('steer')}<span>引导 · ${escape(label)}</span></div>` : ''}<div class="message-content">${escape(body)}${refs.length ? `<div class="message-refs">${refs.map(ref => `<button type="button" class="ref-chip" data-open-path="${escape(ref)}" title="${escape(ref)}">${icon('file')}<span>${escape(ref.split('/').at(-1))}</span></button>`).join('')}</div>` : ''}</div><div class="message-actions"><time>${escape(time(m.createdAt))}</time><button type="button" data-copy-user="${escape(m.id)}" title="复制">${icon('copy')}</button><button type="button" data-reuse-message="${escape(m.id)}" title="放回输入框再次编辑">${icon('reply')}</button></div>`;
 }
 function questionMarkup(permission) {
   return `<div class="approval-card question-card" data-permission-id="${escape(permission.id)}"><div class="approval-top"><span class="approval-icon">${icon('message')}</span><div><strong>Claude 想了解你的选择</strong><small>回答后 Claude 会继续工作</small></div></div>${permission.input.questions.map((question, index) => `<fieldset class="question-field" data-question-index="${index}"><legend>${question.header ? `<span class="question-tag">${escape(question.header)}</span>` : ''}${escape(question.question || `问题 ${index + 1}`)}</legend>${(question.options || []).map((option, n) => `<label class="question-option"><input type="${question.multiSelect ? 'checkbox' : 'radio'}" name="question-${escape(permission.id)}-${index}" value="${escape(option.label || option.value || String(n))}"><span><strong>${escape(option.label || option.value)}</strong>${option.description ? `<small>${escape(option.description)}</small>` : ''}</span></label>`).join('')}<input class="question-freeform" type="text" placeholder="或输入自己的回答" aria-label="自由回答" maxlength="5000"></fieldset>`).join('')}<div class="approval-actions"><button type="button" data-allow="false">暂不回答</button><button type="button" class="allow" data-allow="true">提交回答</button></div></div>`;
@@ -510,13 +513,14 @@ function activityItem(block, entries, live) {
 // Steps between two replies form one activity; once the reply moves past it, it folds into a summary row.
 function chatItems(session) {
   const blocks = sessionBlocks(session), compactMode = !ui.stepsInline;
-  const live = running(session), lastUser = blocks.findLastIndex(b => b.type === 'user'), items = [];
+  const live = running(session), lastUser = blocks.findLastIndex(b => b.type === 'user' && !b.m.steer), items = [];
   let turn = 'start', head = null, texts = 0, asked = null; ui.entryGroups = new Map();
   const moved = session?.history;
   if (moved?.messages) items.push({ kind: 'system', key: 'm:history', m: { id: 'history', createdAt: moved.until, text: `较早的 ${moved.turns || 0} 轮对话已移出页面以保持流畅，导出会话可查看完整记录；不影响 Claude 继续这段对话。` } });
   const closeTurn = () => { if (head && texts && !head.live) items.push({ kind: 'foot', key: `f:${turn}`, turn }); };
   const noteModel = m => { if (head && !head.model && m?.model) head.model = m.model; };
   blocks.forEach((block, index) => {
+    if (block.type === 'user' && block.m.steer) { items.push({ kind: 'user', key: `m:${block.m.id}`, m: block.m }); return; }
     if (block.type === 'user') { closeTurn(); items.push({ kind: 'user', key: `m:${block.m.id}`, m: block.m }); turn = block.m.id; head = null; texts = 0; asked = block.m.resolvedModel || (block.m.model ? resolvedOf(block.m.model) : null); return; }
     if (block.type === 'system') { items.push({ kind: 'system', key: `m:${block.m.id}`, m: block.m }); return; }
     const turnLive = live && index > lastUser, last = index === blocks.length - 1, first = block.m || block.entries[0].tool || block.entries[0].m;
@@ -533,7 +537,7 @@ function chatItems(session) {
   closeTurn();
   const permissions = (session?.permissions || []).filter(p => !p.status || ['pending', 'awaiting_approval'].includes(p.status));
   // The working row covers silent gaps only: between steps, before the first token, or a reply that has paused.
-  const current = items.slice(items.findLastIndex(item => item.kind === 'user') + 1);
+  const current = items.slice(items.findLastIndex(item => item.kind === 'user' && !item.m.steer) + 1);
   if (live && !permissions.length && !current.some(item => (item.kind === 'tool' && activeStatuses.has(item.tool.status)) || ((item.kind === 'thinking' || item.kind === 'activity') && item.live)) && (items.at(-1)?.kind !== 'text' || performance.now() - ui.lastProgressAt > 1500)) {
     const label = session.status === 'stopping' ? '正在停止…' : head ? '继续处理中' : '正在思考';
     if (!head) items.push(head = { kind: 'head', key: `h:${turn}`, at: null, live: true });
@@ -556,7 +560,7 @@ function turnModelMarkup(item) {
 const messageSigs = new WeakMap();
 function rowSig(item) {
   switch (item.kind) {
-    case 'user': case 'system': { let sig = messageSigs.get(item.m); if (sig === undefined) { sig = JSON.stringify([item.m.text, item.m.createdAt]); messageSigs.set(item.m, sig); } return sig; }
+    case 'user': case 'system': { let sig = messageSigs.get(item.m); if (sig === undefined) { sig = JSON.stringify([item.m.text, item.m.createdAt, item.m.steer]); messageSigs.set(item.m, sig); } return sig; }
     case 'head': return `h|${item.at ? time(item.at) : ''}|${item.model || ''}|${item.asked || ''}`;
     case 'activity': return `v|${item.cls}|${item.live}|${item.title}|${item.meta.replace(/<span data-since[^>]*>[^<]*<\/span>/, '')}|${item.add}|${item.del}|${Boolean(item.thinking)}`;
     case 'thinking': return `k|${item.open}|${item.expandable}|${Boolean(item.m.thinkingRedacted)}`;
@@ -570,7 +574,7 @@ function rowSig(item) {
 }
 function rowClass(item) {
   switch (item.kind) {
-    case 'user': return 'message message-user';
+    case 'user': return item.m.steer ? 'message message-user message-steer' : 'message message-user';
     case 'system': return 'message message-system';
     case 'head': return `message a-row turn-head${item.live ? ' live' : ''}`;
     case 'text': return `message a-row text-row${item.live ? ' streaming' : ''}`;
@@ -884,7 +888,7 @@ async function copy(text) {
 function turnText(turn) {
   const messages = state.session?.messages || [], start = turn === 'start' ? 0 : messages.findIndex(m => m.id === turn) + 1, parts = [];
   if (!start && turn !== 'start') return '';
-  for (let i = start; i < messages.length && messages[i].role !== 'user'; i++) if (messages[i].role === 'assistant' && (messages[i].text || '').trim()) parts.push(messages[i].text.trim());
+  for (let i = start; i < messages.length && !turnStart(messages[i]); i++) if (messages[i].role === 'assistant' && (messages[i].text || '').trim()) parts.push(messages[i].text.trim());
   return parts.join('\n\n');
 }
 async function loadFullTool(id) {
@@ -923,8 +927,8 @@ const activityVisible = () => ui.activityOpen && !ui.activitySuspended;
 function activityTurns(session) {
   const turns = []; let turn = null, number = session?.history?.turns || 0;
   for (const block of sessionBlocks(session)) {
-    if (block.type === 'user') { turns.push(turn = { id: block.m.id, m: block.m, number: ++number, seq: [] }); continue; }
-    if (block.type === 'system') continue;
+    if (block.type === 'user' && !block.m.steer) { turns.push(turn = { id: block.m.id, m: block.m, number: ++number, seq: [] }); continue; }
+    if (block.type !== 'activity' && block.type !== 'text') continue;
     if (!turn) turns.push(turn = { id: 'start', m: null, number: 0, seq: [] });
     turn.seq.push(block.type === 'activity' ? { type: 'activity', key: block.key, entries: compactSteps(block.entries) } : { type: 'reply', m: block.m });
   }
@@ -1065,7 +1069,7 @@ function renderActivity() {
 function scheduleActivity() { updateActivityBadge(); if (!activityVisible() || ui.activityTimer) return; ui.activityTimer = setTimeout(renderActivity, 150); }
 function updateActivityBadge() {
   const session = state.session, live = running(session), badge = $('#activity-badge');
-  const since = live ? dateValue(session.messages?.findLast(m => m.role === 'user')?.createdAt) : 0, count = live ? (session.tools || []).filter(t => dateValue(t.createdAt) >= since).length : 0;
+  const since = live ? dateValue(session.messages?.findLast(turnStart)?.createdAt) : 0, count = live ? (session.tools || []).filter(t => dateValue(t.createdAt) >= since).length : 0;
   const text = live && count ? String(count) : '';
   if (badge.textContent !== text) badge.textContent = text;
   badge.hidden = !text; $('#activity-toggle').classList.toggle('live', live);
@@ -1198,7 +1202,7 @@ function renderRunPill() {
 function renderTodos() {
   const panel = $('#todo-panel'), session = state.session, tools = session?.tools || [];
   // Only this turn's plan: a finished list from an earlier request must not look like current progress.
-  const since = dateValue([...(session?.messages || [])].reverse().find(m => m.role === 'user')?.createdAt);
+  const since = dateValue(session?.messages?.findLast(turnStart)?.createdAt);
   let todos = null; for (let i = tools.length - 1; i >= 0 && !todos; i--) if (tools[i].name === 'TodoWrite' && Array.isArray(tools[i].input?.todos) && dateValue(tools[i].createdAt) >= since) todos = tools[i].input.todos;
   const live = running(session);
   if (!todos?.length || (!live && todos.every(t => t.status === 'completed'))) { panel.hidden = true; panel.dataset.key = ''; return; }
@@ -1291,12 +1295,13 @@ function updateControls() {
   $('#send-button').hidden = inRun; $('#stop-button').hidden = !inRun;
   $('#send-button').disabled = state.busy || terminalOwn || loginBusy || loading || archived || state.accountSwitchPending || !ready || (!inRun && slots.full) || !$('#message-input').value.trim();
   $('#stop-button').disabled = state.busy;
+  $('#steer-button').hidden = !inRun; $('#steer-button').disabled = state.busy || state.steering || archived || !ready || state.session?.status === 'stopping' || !$('#message-input').value.trim();
   $('#model-select').disabled = inRun || terminalOwn || loading || state.busy || archived; $('#mode-select').disabled = inRun || terminalOwn || loading || state.busy || archived;
   $('#effort-select').disabled = inRun || terminalOwn || loading || state.busy || archived || $('#effort-select').options.length < 2;
   $('#start-shell').disabled = ide.terminalStarting || inRun || terminalBusy || loginBusy || state.accountSwitchPending;
   $('#start-claude').disabled = ide.terminalStarting || inRun || terminalBusy || loginBusy || !ready || state.accountSwitchPending;
   $('#message-input').disabled = archived || !ready;
-  $('#message-input').placeholder = archived ? '这个会话已归档，恢复后可继续对话。' : !ready ? (state.execution?.detail || '工作台尚未登录 Claude 账号') : inRun ? '可以先写下下一步，当前任务结束后发送…' : slots.full ? `已有 ${slots.count} 个任务在并行运行，其中一个完成后即可发送…` : '描述任务，或者先聊聊你的想法…';
+  $('#message-input').placeholder = archived ? '这个会话已归档，恢复后可继续对话。' : !ready ? (state.execution?.detail || '工作台尚未登录 Claude 账号') : inRun ? '补充要求或纠正方向，按 Enter 发送引导，Claude 会在下一步读到…' : slots.full ? `已有 ${slots.count} 个任务在并行运行，其中一个完成后即可发送…` : '描述任务，或者先聊聊你的想法…';
   $('#active-run-strip').hidden = !inRun;
   $('#active-run-strip').classList.toggle('wait', state.session?.status === 'awaiting_approval');
   $('#active-run-label').textContent = inRun ? currentActivity(state.session) : '';
@@ -1311,7 +1316,7 @@ function updateControls() {
 }
 function updateRunClock() {
   if (!running(state.session)) { $('#run-pill-time').textContent = ''; return; }
-  const latestUserMessage = [...(state.session.messages || [])].reverse().find(message => message.role === 'user');
+  const latestUserMessage = state.session.messages?.findLast(turnStart);
   const start = state.session.runStartedAt || latestUserMessage?.createdAt;
   const text = dateValue(start) ? duration(serverNow() - dateValue(start)) : '';
   $('#active-run-time').textContent = text; $('#run-pill-time').textContent = text;
@@ -1374,7 +1379,7 @@ function renderModelOptions(value = $('#model-select').value || 'sonnet') {
 function renderModelStatus() {
   const label = $('#active-model-label'); if (!label) return;
   const value = $('#model-select').value, resolved = resolvedOf(value), session = state.session;
-  const lastUser = session?.messages?.findLast(m => m.role === 'user'), actual = session?.messages?.findLast(m => m.role === 'assistant' && m.model)?.model || session?.metrics?.model;
+  const lastUser = session?.messages?.findLast(turnStart), actual = session?.messages?.findLast(m => m.role === 'assistant' && m.model)?.model || session?.metrics?.model;
   const parts = [`<b>${escape(modelLabel(value))}</b>`]; if (resolved) parts.push(`<code>${escape(resolved)}</code>`);
   let tone = '', title = resolved ? `所选模型会以 ${resolved} 运行` : '所选模型的具体版本由 Claude Code 决定';
   if (actual && resolved && actual !== resolved) {
@@ -1678,7 +1683,7 @@ $('#login-form').addEventListener('submit', async event => {
   } finally { $('#login-submit').disabled = false; }
 });
 $('#toggle-password').addEventListener('click', () => { const input = $('#login-password'); const show = input.type === 'password'; input.type = show ? 'text' : 'password'; $('#toggle-password').innerHTML = icon(show ? 'eye-off' : 'eye'); $('#toggle-password').setAttribute('aria-label', show ? '隐藏口令' : '显示口令'); });
-$('#logout').addEventListener('click', async () => { try { await plugins.flush(); await api('/api/logout', { method: 'POST', body: {} }); try { Object.keys(localStorage).filter(key => key.startsWith('cloud-ops-workbench-draft:') || key === 'cloud-ops-workbench-active').forEach(key => localStorage.removeItem(key)); } catch {} state.draftLoaded = false; state.pendingSend = null; $('#message-input').value = ''; showLogin(); } catch (error) { toast(error.message, true); } });
+$('#logout').addEventListener('click', async () => { try { await plugins.flush(); await api('/api/logout', { method: 'POST', body: {} }); try { Object.keys(localStorage).filter(key => key.startsWith('cloud-ops-workbench-draft:') || key === 'cloud-ops-workbench-active').forEach(key => localStorage.removeItem(key)); } catch {} state.draftLoaded = false; state.pendingSend = null; state.pendingSteer = null; $('#message-input').value = ''; showLogin(); } catch (error) { toast(error.message, true); } });
 $('#new-session').addEventListener('click', newSessionView);
 $('#session-search').addEventListener('input', renderSessions);
 $('#toggle-archived').addEventListener('click', () => { state.archived = !state.archived; renderSessions(); });
@@ -1699,7 +1704,7 @@ $('#sidebar-scrim').addEventListener('click', closeSidebar);
 $('#run-pill').addEventListener('click', scrollToLatest);
 $('#workspace-path').addEventListener('click', () => { if (state.activeId && !ide.workspaceOpen) openWorkspace().catch(error => toast(error.message, true)); });
 $('#message-input').addEventListener('input', () => { resizeInput(); preserveDraft(); updateControls(); renderSlashMenu(); });
-$('#message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!running(state.session) && !$('#send-button').disabled) $('#composer').requestSubmit(); } });
+$('#message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!$(running(state.session) ? '#steer-button' : '#send-button').disabled) $('#composer').requestSubmit(); } });
 $('#message-input').addEventListener('paste', event => { const files = [...(event.clipboardData?.files || [])]; if (!files.length) return; event.preventDefault(); uploadFiles(files.map(pastedName)).catch(error => toast(error.message, true)); });
 $('#chat-view').addEventListener('dragover', event => { if (![...(event.dataTransfer?.types || [])].includes('Files')) return; event.preventDefault(); $('#chat-view').classList.add('dragging'); });
 $('#chat-view').addEventListener('dragleave', event => { if (!event.relatedTarget || !$('#chat-view').contains(event.relatedTarget)) $('#chat-view').classList.remove('dragging'); });
@@ -1770,8 +1775,24 @@ $('#messages').addEventListener('pointerdown', () => { ui.pointerDown = true; })
 $('#messages').addEventListener('touchstart', () => { ui.touching = true; }, { passive: true });
 for (const type of ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'blur']) addEventListener(type, () => { const held = ui.pointerDown || ui.touching; ui.pointerDown = false; ui.touching = false; if (held && ui.stuck) requestFrame(); }, { passive: true });
 $('#scroll-bottom').addEventListener('click', scrollToLatest);
+// While Claude works, the composer sends guidance: it reaches the running turn at Claude's next step.
+async function sendSteer() {
+  let text = $('#message-input').value.trim(); const id = state.activeId;
+  if (!text || !id || state.busy || state.steering) return;
+  if (/^\/[^\s]+$/.test(text)) { const command = commandsList().find(c => c.slash === text); if (command) { $('#message-input').value = ''; preserveDraft(); resizeInput(); updateControls(); await executeCommand(command); return; } }
+  const attachments = ide.attachments.get(id) || []; if (attachments.length) text += `\n\n引用当前工作区文件：\n${attachments.map(file => `- @${file.path}`).join('\n')}`;
+  state.steering = true; updateControls();
+  try {
+    if (!state.pendingSteer || state.pendingSteer.sessionId !== id || state.pendingSteer.text !== text) state.pendingSteer = { sessionId: id, text, requestId: crypto.randomUUID() };
+    const result = await api(`/api/sessions/${encodeURIComponent(id)}/steer`, { method: 'POST', body: { text, requestId: state.pendingSteer.requestId } });
+    state.pendingSteer = null;
+    if (id === state.activeId) { $('#message-input').value = ''; ide.attachments.delete(id); renderAttachments(); preserveDraft(); resizeInput(); ui.stuck = true; acceptSession(result); stickToBottom(); }
+  } catch (error) { toast(error.message, true); if (error.status === 409) await refreshSession().catch(() => {}); }
+  finally { state.steering = false; updateControls(); }
+}
 $('#composer').addEventListener('submit', async event => {
-  event.preventDefault(); let text = $('#message-input').value.trim(); if (!text || running(state.session) || terminalHere() || state.busy || state.accountSwitchPending) return;
+  event.preventDefault(); if (running(state.session)) { await sendSteer(); return; }
+  let text = $('#message-input').value.trim(); if (!text || terminalHere() || state.busy || state.accountSwitchPending) return;
   if (!accountReady()) { toast('请先登录 Claude 账号后再开始对话。', true); return; }
   if (/^\/[^\s]+$/.test(text)) { const command = commandsList().find(c => c.slash === text); if (command) { $('#message-input').value = ''; preserveDraft(); resizeInput(); updateControls(); await executeCommand(command); return; } }
   const attachments = ide.attachments.get(state.activeId) || []; if (attachments.length) text += `\n\n引用当前工作区文件：\n${attachments.map(file => `- @${file.path}`).join('\n')}`;

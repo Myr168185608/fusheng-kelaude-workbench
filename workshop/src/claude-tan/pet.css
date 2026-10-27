@@ -1,0 +1,87 @@
+/* Claude 娘 · The illustrated frames keep their own colors so she reads on any skin; the speech bubble follows the skin. */
+html,body{height:100%}
+.ct{position:relative;width:100%;height:100%;user-select:none;-webkit-user-select:none}
+.ct-body{position:absolute;left:50%;bottom:2px;width:128px;height:192px;margin-left:-64px;border-radius:40px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.ct-body:focus-visible{outline-offset:-6px}
+
+/* Bubble */
+.ct-bubble{position:absolute;left:50%;top:4px;max-width:146px;width:max-content;padding:6px 10px;border-radius:12px;background:var(--wb-surface);border:1px solid var(--wb-line-2);color:var(--wb-ink);font-size:12px;line-height:1.45;text-align:center;box-shadow:0 8px 20px -12px color-mix(in srgb,var(--wb-shadow) 60%,transparent);opacity:0;transform:translate(-50%,5px) scale(.94);transform-origin:50% 100%;transition:opacity .25s,transform .3s var(--wb-ease);pointer-events:none;z-index:5}
+.ct-bubble.show{opacity:1;transform:translate(-50%,0) scale(1)}
+.ct-bubble>span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ct-bubble::after{content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;margin-left:-4px;background:var(--wb-surface);border-right:1px solid var(--wb-line-2);border-bottom:1px solid var(--wb-line-2);transform:rotate(45deg)}
+.ct-badge{position:absolute;left:6px;bottom:6px;padding:1px 7px;border-radius:99px;background:var(--wb-surface);border:1px solid var(--wb-line);color:#d97757;font-size:10.5px;font-weight:700;opacity:0;transition:opacity .2s;pointer-events:none;z-index:5}
+.ct:hover .ct-badge,.ct:focus-within .ct-badge{opacity:1}
+.ct-heart{position:absolute;bottom:120px;color:#ff6b8b;font-size:15px;pointer-events:none;z-index:5;animation:ct-heart 1.15s var(--wb-ease) both}
+
+/* Frames: poses crossfade, patches sit on the pose they were cut from */
+.ct-figure,.ct-tilt,.ct-sway,.ct-art{position:absolute;inset:0;transform-origin:50% 100%}
+.ct-art{filter:drop-shadow(0 2px 3px rgba(90,48,30,.16))}
+html[data-scheme="dark"] .ct-art{filter:drop-shadow(0 0 6px rgba(255,196,160,.16))}
+.ct-art img{position:absolute;display:block;pointer-events:none;-webkit-user-drag:none}
+.ct-pose{left:0;top:0;width:100%;height:100%;opacity:0;z-index:0}
+.ct-pose.prev{opacity:1;z-index:1}
+.ct-pose.on{opacity:1;z-index:2;transition:opacity .22s ease}
+.ct-patch{opacity:0;z-index:3}
+.ct-patch.on{opacity:1}
+.ct-patch-happy.on,.ct-patch-petted.on,.ct-patch-worried.on,.ct-patch-sad.on,.ct-patch-look.on{transition:opacity .14s ease}
+.ct-shadow{position:absolute;left:50.8%;bottom:-1px;width:44px;height:7px;margin-left:-22px;border-radius:50%;background:radial-gradient(closest-side,rgba(58,40,32,.3),transparent);animation:ct-shadow 3.6s ease-in-out infinite}
+html[data-scheme="dark"] .ct-shadow{background:radial-gradient(closest-side,rgba(0,0,0,.55),transparent)}
+
+/* Effects, drawn in frame pixels over the art */
+.ct-fx{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:4}
+.ct-fx>*{display:none}
+.ct-glint-at{display:inline;transform:translate(182px,68px)}
+.ct[data-pose="approval"] .ct-glint-at{transform:translate(180px,66px)}
+.ct[data-pose="sleep"] .ct-glint-at{transform:translate(174px,58px)}
+.ct-glint{fill:#fff;transform-box:fill-box;transform-origin:center;animation:ct-glint 5.2s ease-in-out infinite;filter:drop-shadow(0 0 2px rgba(255,214,170,.9))}
+.ct[data-state="working"] .ct-glint{animation-duration:1.6s}
+.ct[data-state="thinking"] .ct-think,.ct[data-state="approval"] .ct-question,.ct[data-pose="sleep"] .ct-zzz,.ct[data-state="error"] .ct-gloom,.ct[data-pose="working"] .ct-code,.ct[data-pose="cheer"] .ct-sparkles,.ct.petted .ct-sparkles{display:inline}
+.ct-think circle{fill:#fff7f0;stroke:#c99a7e;stroke-width:2;transform-box:fill-box;transform-origin:center;animation:ct-pop 2.4s ease-in-out infinite}
+html[data-scheme="dark"] .ct-think circle{fill:#f6e6da}
+.ct-think circle:nth-child(2){animation-delay:.3s}
+.ct-think circle:nth-child(3){animation-delay:.6s}
+.ct-question{font:800 46px/1 var(--wb-font);fill:var(--wb-amber-2);stroke:#fff;stroke-width:2;paint-order:stroke;animation:ct-hop .8s ease-in-out infinite}
+.ct-zzz text{font:800 22px/1 var(--wb-font);fill:#e58b62;stroke:#fff;stroke-width:2;paint-order:stroke;animation:ct-zzz 3s ease-in-out infinite}
+.ct-zzz text:nth-child(2){font-size:28px;animation-delay:.6s}
+.ct-zzz text:nth-child(3){font-size:34px;animation-delay:1.2s}
+.ct-gloom path{stroke:#7b6fc4;stroke-width:3;stroke-linecap:round;opacity:.55;animation:ct-gloom 2s ease-in-out infinite}
+.ct-gloom path:nth-child(2){animation-delay:.25s}
+.ct-gloom path:nth-child(3){animation-delay:.5s}
+.ct-code text{font:700 20px/1 var(--wb-mono,monospace);fill:#d97757;stroke:#fff;stroke-width:3;paint-order:stroke;opacity:0;animation:ct-code 2.1s ease-out infinite}
+.ct-code text:nth-child(1){transform:translate(34px,6px)}
+.ct-code text:nth-child(2){animation-delay:.7s;transform:translate(30px,6px)}
+.ct-code text:nth-child(3){animation-delay:1.4s;transform:translate(52px,6px)}
+.ct-sparkles path{fill:#f6c453;stroke:#fff;stroke-width:1.2;transform-box:fill-box;transform-origin:center;animation:ct-twinkle 1.2s ease-in-out infinite}
+.ct-sparkles path:nth-child(2){animation-delay:.3s}
+.ct-sparkles path:nth-child(3){animation-delay:.6s}
+.ct-sparkles path:nth-child(4){animation-delay:.9s}
+
+/* Motion: she breathes and sways a little; poses and events add their own */
+.ct-tilt{animation:ct-sway 7s ease-in-out infinite}
+.ct-sway{animation:ct-breathe 3.6s ease-in-out infinite}
+.ct[data-pose="working"] .ct-sway{animation:ct-typing .44s ease-in-out infinite alternate}
+.ct[data-state="worried"] .ct-sway{animation-duration:1.8s}
+.ct[data-pose="sleep"] .ct-tilt{animation:none}
+.ct[data-pose="sleep"] .ct-sway{animation:ct-breathe-deep 5s ease-in-out infinite}
+.ct[data-pose="sleep"] .ct-shadow{animation-duration:5s}
+.ct.squish .ct-figure{animation:ct-squish .5s var(--wb-ease)}
+.ct.hop .ct-figure{animation:ct-jump .7s var(--wb-ease) 2}
+.ct.shake .ct-figure{animation:ct-shake .5s ease-in-out}
+.ct.paused *{animation-play-state:paused!important}
+@media (prefers-reduced-motion:reduce){.ct-tilt,.ct-sway,.ct-figure,.ct-shadow{animation:none!important}}
+@keyframes ct-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.005,1.012)}}
+@keyframes ct-breathe-deep{0%,100%{transform:scale(1,1)}50%{transform:scale(1.01,1.02)}}
+@keyframes ct-sway{0%,100%{transform:rotate(-.7deg)}50%{transform:rotate(.7deg)}}
+@keyframes ct-typing{from{transform:translateY(0)}to{transform:translateY(-1.2px)}}
+@keyframes ct-shadow{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.93)}}
+@keyframes ct-squish{0%{transform:scale(1,1)}30%{transform:scale(1.05,.94)}65%{transform:scale(.98,1.03)}100%{transform:scale(1,1)}}
+@keyframes ct-jump{0%,100%{transform:translateY(0)}40%{transform:translateY(-12px)}70%{transform:translateY(0)}85%{transform:translateY(-2px)}}
+@keyframes ct-shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-3px)}40%{transform:translateX(3px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}
+@keyframes ct-glint{0%,82%,100%{transform:scale(0) rotate(0);opacity:0}88%{transform:scale(1.15) rotate(45deg);opacity:1}94%{transform:scale(.5) rotate(90deg);opacity:.6}}
+@keyframes ct-pop{0%,100%{transform:scale(.6);opacity:.4}50%{transform:scale(1);opacity:1}}
+@keyframes ct-hop{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes ct-zzz{0%{opacity:0;transform:translate(0,6px)}30%,70%{opacity:1}100%{opacity:0;transform:translate(5px,-8px)}}
+@keyframes ct-gloom{0%,100%{opacity:.2}50%{opacity:.6}}
+@keyframes ct-code{0%{opacity:0;translate:0 0}15%{opacity:1}100%{opacity:0;translate:16px -44px}}
+@keyframes ct-twinkle{0%,100%{transform:scale(.4);opacity:.3}50%{transform:scale(1);opacity:1}}
+@keyframes ct-heart{0%{opacity:0;transform:translateY(0) scale(.5)}25%{opacity:1;transform:translateY(-14px) scale(1)}100%{opacity:0;transform:translateY(-58px) scale(.9)}}
