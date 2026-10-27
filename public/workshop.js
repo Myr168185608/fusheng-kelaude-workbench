@@ -6,7 +6,7 @@ import { THEMES, AUTO_THEMES } from './themes.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const DOCS_URL = 'https://github.com/qiuxinyuan321/fusheng-kelaude-workbench/blob/main/docs/PLUGINS.md';
 const SOURCES = { builtin: '内置', workshop: '创意工坊', local: '本地导入', dev: '开发中' };
-const SURFACES = { panel: '面板', widget: '监控小组件', overlay: '悬浮窗', background: '后台' };
+const SURFACES = { panel: '面板', widget: '监控小组件', overlay: '悬浮窗', background: '后台', sidebar: '侧边栏入口', composer: '输入框选择器' };
 const SOURCE_NOTES = {
   builtin: '这是工作台自带的插件，由项目维护者编写并随版本发布。',
   official: '这个插件由工作台项目维护，收录在创意工坊目录中，安装包会校验 sha256。',

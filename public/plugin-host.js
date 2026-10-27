@@ -6,9 +6,10 @@ import { pluginTokens } from './themes.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const SURFACE_LABELS = { panel: '面板', widget: '小组件', overlay: '悬浮窗', background: '后台' };
 // Broadcast events and the permission needed to receive them; theme, visibility and command always reach the plugin.
-const EVENT_PERMISSIONS = { activity: 'activity', session: 'sessions.read', 'session:active': 'sessions.read', metrics: 'sessions.read', usage: 'usage.read', system: 'system.read' };
+const EVENT_PERMISSIONS = { activity: 'activity', session: 'sessions.read', 'session:active': 'sessions.read', metrics: 'sessions.read', usage: 'usage.read', system: 'system.read', runtime: 'backend' };
 const METRIC_KEYS = ['turns', 'toolCalls', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'costUsd', 'durationMs', 'apiDurationMs', 'contextTokens', 'contextWindow'];
 const RATE_PER_SECOND = 50, PARAMS_LIMIT = 64 * 1024, STORAGE_LIMIT = 256 * 1024;
+const CHOICE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
 const INVISIBLE = /[\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
 const BIDI = /[\u202a-\u202e\u2066-\u2069]/g;
@@ -34,6 +35,7 @@ const summaryOf = s => ({ id: String(s.id), title: typeof s.title === 'string' ?
 export function createPluginHost(ctx) {
   const mounted = new Map(), stores = new Map();
   let data = null, monitorShown = false, stats = null, statsAt = 0, statsRequest = null, metricsTimer = null;
+  let composer = { sessionId: null, locked: false };
 
   const themePayload = () => { const theme = ctx.theme(); return { id: theme?.id || 'spruce', name: theme?.name || '', scheme: theme?.scheme === 'dark' ? 'dark' : 'light', tokens: pluginTokens() }; };
   const usagePayload = () => {
@@ -122,6 +124,7 @@ export function createPluginHost(ctx) {
       return true;
     } },
     'ui.setStatus': { permission: 'ui.statusbar', run(frame, params) { setStatus(frame.entry, params); return true; } },
+    'ui.setSidebar': { run(frame, params) { setSidebar(frame.entry, params); return true; } },
     'ui.openPanel': { run(frame) { if (!frame.entry.plugin.contributes.panel) fail('这个插件没有面板。'); throttle(frame.entry, 'panel', 2000); openPanel(frame.entry.plugin.id); return true; } },
     'ui.resize': { run(frame, params) { return resize(frame, params); } },
     'ui.hide': { run(frame) { if (frame.surface !== 'overlay') fail('只有悬浮窗可以隐藏自己。'); setOverlayHidden(frame.entry, true); return true; } },
@@ -155,6 +158,8 @@ export function createPluginHost(ctx) {
       if (!ctx.openSession(params.id)) fail('会话不存在或已归档。', 'not_found');
       return true;
     } },
+    'composer.setPicker': { run(frame, params) { setPicker(frame.entry, params); return true; } },
+    'composer.reply': { run(frame, params) { return replyPicker(frame.entry, params); } },
     'composer.insert': { permission: 'composer.insert', run(frame, params) {
       const text = params?.text;
       if (typeof text !== 'string' || !text.trim() || text.length > 30000) fail('插入的文本需为 1–30000 个字符。');
@@ -230,15 +235,152 @@ export function createPluginHost(ctx) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'plugin-status'; button.dataset.plugin = entry.plugin.id;
       const label = document.createElement('span'); label.className = 'plugin-status-text';
       button.append(glyph(entry.plugin), label); button.addEventListener('click', () => postPlugin(entry, 'statusbar:click', {}));
-      // Keep the plugin list's order rather than whichever frame happened to report first, so items don't swap on reload.
-      const order = id => data?.plugins.findIndex(p => p.id === id) ?? -1;
-      const next = [...$('#plugin-status').children].find(el => order(el.dataset.plugin) > order(entry.plugin.id));
-      $('#plugin-status').insertBefore(button, next || null); entry.status = button;
+      insertOrdered($('#plugin-status'), button, entry.plugin.id); entry.status = button;
     }
     $('.plugin-status-text', entry.status).textContent = text;
     const title = typeof params.title === 'string' ? oneLine(params.title) : '';
     entry.status.title = `${entry.plugin.name}${title ? ` · ${clip(title, 120)}` : ''}`;
     entry.status.dataset.tone = tone;
+  }
+  // Keep the plugin list's order rather than whichever frame happened to report first, so items don't swap on reload.
+  function insertOrdered(container, element, id) {
+    const order = pluginId => data?.plugins.findIndex(p => p.id === pluginId) ?? -1;
+    const next = [...container.children].find(el => order(el.dataset.plugin) > order(id));
+    container.insertBefore(element, next || null);
+  }
+  function deliver(entry, message) { for (const frame of entry.frames.values()) { if (frame.port) frame.port.postMessage(message); else frame.backlog.push(message); } }
+
+  /* ---------- Slots: an entry in the sidebar and a picker in the composer ---------- */
+  function slotMark(entry, name) {
+    const mark = document.createElement('span');
+    if (name) mark.innerHTML = ctx.icon(name); else mark.append(glyph(entry.plugin));
+    return mark;
+  }
+  function createSidebar(entry) {
+    const { plugin } = entry, spec = plugin.contributes.sidebar;
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'sidebar-plugin'; button.dataset.plugin = plugin.id; button.title = `${spec.title} · ${plugin.name}`;
+    const mark = slotMark(entry, spec.icon); mark.className = 'sidebar-plugin-mark';
+    const label = document.createElement('span'), title = document.createElement('strong'), subtitle = document.createElement('small');
+    title.textContent = spec.title; subtitle.textContent = spec.subtitle || plugin.name; label.append(title, subtitle);
+    const chevron = document.createElement('span'); chevron.innerHTML = ctx.icon('chevron-right');
+    button.append(mark, label, chevron);
+    button.addEventListener('click', () => { openPanel(plugin.id); ctx.closeSidebar?.(); });
+    insertOrdered($('#plugin-sidebar'), button, plugin.id); entry.sidebar = button;
+  }
+  function setSidebar(entry, params) {
+    const spec = entry.plugin.contributes.sidebar;
+    if (!spec || !entry.sidebar) fail('这个插件没有声明侧边栏入口。');
+    if (params !== null && (!params || typeof params !== 'object')) fail('侧边栏需要 { subtitle, tone } 对象，或 null 恢复默认。');
+    const subtitle = params?.subtitle === undefined || params?.subtitle === null || params?.subtitle === '' ? spec.subtitle || entry.plugin.name : clip(cleanText(params.subtitle, '副标题'), 32);
+    $('small', entry.sidebar).textContent = subtitle;
+    entry.sidebar.dataset.tone = ['ok', 'warn', 'bad'].includes(params?.tone) ? params.tone : '';
+  }
+  // The background surface owns the picker's options. The page keeps a choice made before the conversation
+  // exists and sends it once with the first message; later changes reach the plugin as composer:change.
+  function createPicker(entry) {
+    const { plugin } = entry, spec = plugin.contributes.composer;
+    const element = document.createElement('label'); element.className = 'composer-select plugin-picker'; element.dataset.plugin = plugin.id; element.hidden = true;
+    const select = document.createElement('select'); select.setAttribute('aria-label', `${spec.title} · ${plugin.name}`);
+    const chevron = document.createElement('span'); chevron.innerHTML = ctx.icon('chevron-down');
+    element.append(slotMark(entry, spec.icon), select, chevron);
+    select.addEventListener('change', () => pick(entry, select.value));
+    insertOrdered($('#plugin-pickers'), element, plugin.id);
+    entry.picker = { element, select, state: null, draft: null, local: new Map(), choices: new Map(), pending: null, timer: null, signature: '' };
+  }
+  function pickerValue(raw, field) {
+    if (typeof raw === 'string' && CHOICE.test(raw)) return { value: raw, label: null };
+    if (raw && typeof raw === 'object' && typeof raw.value === 'string' && CHOICE.test(raw.value)) {
+      return { value: raw.value, label: raw.label === undefined || raw.label === null || raw.label === '' ? null : clip(cleanText(raw.label, `${field}.label`), 24) };
+    }
+    fail(`${field} 需要是选项的 value（字母、数字和 _ . : -，最长 64 个字符），或 { value, label }。`);
+  }
+  function setPicker(entry, params) {
+    const picker = entry.picker;
+    if (!picker) fail('这个插件没有声明输入框选择器。');
+    if (params === null) { picker.state = null; renderPicker(entry); return; }
+    if (!params || typeof params !== 'object' || !Array.isArray(params.options) || !params.options.length || params.options.length > 16) fail('选择器需要 1–16 个 options。');
+    const options = params.options.map((option, i) => {
+      if (!option || typeof option !== 'object' || typeof option.value !== 'string' || !CHOICE.test(option.value)) fail(`options[${i}].value 无效。`);
+      return { value: option.value, label: clip(cleanText(option.label, `options[${i}].label`), 24), detail: typeof option.detail === 'string' ? clip(oneLine(option.detail), 80) : '', disabled: option.disabled === true };
+    });
+    if (new Set(options.map(option => option.value)).size !== options.length) fail('options 的 value 不能重复。');
+    const known = item => options.some(option => option.value === item.value);
+    const fallback = pickerValue(params.value ?? options[0].value, 'value');
+    if (!known(fallback)) fail('value 必须是 options 中的一项。');
+    const values = new Map();
+    if (params.values !== undefined && params.values !== null) {
+      if (typeof params.values !== 'object' || Array.isArray(params.values)) fail('values 必须是 { 会话 id: 选项 } 对象。');
+      const list = Object.entries(params.values);
+      if (list.length > 1000) fail('values 最多 1000 项。');
+      for (const [id, raw] of list) {
+        if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) fail('values 的键必须是会话 id。');
+        const item = pickerValue(raw, 'values 中的选项'); if (known(item)) values.set(id, item);
+      }
+    }
+    picker.state = { options, fallback, values, title: typeof params.title === 'string' ? clip(oneLine(params.title), 120) : '', disabled: params.disabled === true };
+    if (picker.draft && !known(picker.draft)) picker.draft = null;
+    // A choice shown ahead of the plugin stays while its request is open or its first message is unsent;
+    // after that the plugin's state wins.
+    for (const [id, item] of picker.local) {
+      const open = picker.pending?.sessionId === id || picker.choices.get(id) === item.value;
+      if (!known(item) || !open || (values.get(id) || fallback).value === item.value) picker.local.delete(id);
+    }
+    renderPicker(entry);
+  }
+  function currentPick(picker, sessionId) {
+    if (!sessionId) return picker.draft || picker.state.fallback;
+    return picker.local.get(sessionId) || picker.state.values.get(sessionId) || picker.state.fallback;
+  }
+  function renderPicker(entry) {
+    const picker = entry.picker; if (!picker) return;
+    const { state, select, element } = picker;
+    element.hidden = !state;
+    if (!state) { picker.signature = ''; return; }
+    const current = currentPick(picker, composer.sessionId);
+    const signature = JSON.stringify([state.options, current.value, current.label]);
+    if (signature !== picker.signature) {
+      picker.signature = signature;
+      select.replaceChildren(...state.options.map(item => {
+        const option = document.createElement('option'); option.value = item.value;
+        option.textContent = item.value === current.value && current.label ? current.label : item.label;
+        option.disabled = item.disabled && item.value !== current.value;
+        if (item.detail) option.title = item.detail;
+        return option;
+      }));
+      select.value = current.value;
+    }
+    const detail = state.options.find(item => item.value === current.value)?.detail;
+    element.title = [state.title || entry.plugin.contributes.composer.title, detail].filter(Boolean).join(' · ');
+    const waiting = Boolean(picker.pending?.sessionId && picker.pending.sessionId === composer.sessionId);
+    select.disabled = composer.locked || state.disabled || waiting;
+    element.classList.toggle('waiting', waiting);
+  }
+  function pick(entry, value) {
+    const picker = entry.picker, sessionId = composer.sessionId;
+    if (!picker?.state?.options.some(option => option.value === value && !option.disabled) || (composer.locked && sessionId)) { picker.signature = ''; renderPicker(entry); return; }
+    const item = { value, label: null };
+    // An existing conversation is the plugin's to update now; a not-yet-sent first-message choice no longer applies.
+    if (sessionId) { picker.local.set(sessionId, item); picker.choices.delete(sessionId); } else picker.draft = item;
+    const requestId = crypto.randomUUID();
+    picker.pending = { requestId, sessionId };
+    clearTimeout(picker.timer);
+    picker.timer = setTimeout(() => { if (picker.pending?.requestId === requestId) { picker.pending = null; renderPicker(entry); } }, 15000);
+    picker.signature = ''; renderPicker(entry);
+    deliver(entry, { event: 'composer:change', data: { sessionId, value, requestId } });
+  }
+  function replyPicker(entry, params) {
+    const picker = entry.picker;
+    if (!picker) fail('这个插件没有声明输入框选择器。');
+    const pending = picker.pending;
+    if (!params || typeof params !== 'object' || typeof params.requestId !== 'string' || pending?.requestId !== params.requestId) return false;
+    picker.pending = null; clearTimeout(picker.timer);
+    if (params.ok === false) {
+      if (pending.sessionId) picker.local.delete(pending.sessionId); else picker.draft = null;
+      const message = typeof params.message === 'string' ? clip(oneLine(params.message), 160) : '';
+      ctx.toast(`「${entry.plugin.name}」${message || '没有接受这个选择。'}`, true);
+    }
+    picker.signature = ''; renderPicker(entry);
+    return true;
   }
   function resize(frame, params) {
     const clamp = (value, min, max, fallback) => { const n = number(value); return n === null ? fallback : Math.round(Math.min(max, Math.max(min, n))); };
@@ -323,12 +465,15 @@ export function createPluginHost(ctx) {
     if (c.panel) createPanel(entry);
     if (c.widget) createWidget(entry);
     if (c.overlay) createOverlay(entry);
+    if (c.sidebar) createSidebar(entry);
+    if (c.composer) createPicker(entry);
     if (c.background) ensureFrame(entry, 'background');
   }
   function unmount(id, { keepView = false } = {}) {
     const entry = mounted.get(id); if (!entry) return;
     for (const surface of [...entry.frames.keys()]) dropFrame(entry, surface);
-    for (const el of [entry.tab, entry.view, entry.widget, entry.overlay, entry.status]) el?.remove();
+    for (const el of [entry.tab, entry.view, entry.widget, entry.overlay, entry.status, entry.sidebar, entry.picker?.element]) el?.remove();
+    clearTimeout(entry.picker?.timer);
     mounted.delete(id);
     const store = stores.get(id); if (store?.timer) writeStore(id, store); stores.delete(id);
     if (!keepView && ctx.currentView() === `plugin:${id}`) ctx.switchView('chat');
@@ -360,7 +505,7 @@ export function createPluginHost(ctx) {
       else if (c.overlay) setOverlayHidden(entry, false);
       else if (c.widget) ctx.switchView('monitor');
     }
-    for (const frame of entry.frames.values()) { if (frame.port) frame.port.postMessage(message); else frame.backlog.push(message); }
+    deliver(entry, message);
   }
   document.addEventListener('visibilitychange', refreshVisibility);
   window.addEventListener('resize', () => { for (const entry of mounted.values()) if (entry.overlay && !entry.overlayHidden) placeOverlay(entry); }, { passive: true });
@@ -400,6 +545,24 @@ export function createPluginHost(ctx) {
       metricsTimer = setTimeout(() => { metricsTimer = null; const active = activePayload(); if (active) emit('metrics', { sessionId: active.id, metrics: active.metrics }); }, 800);
     },
     activity(event) { emit('activity', { ...event, at: new Date().toISOString() }); },
+    // A trusted backend changed its own state (for example after an action in its panel).
+    runtimeChanged() { emit('runtime', {}); },
+    // The page tells pickers which conversation is open and whether a turn holds them.
+    composer({ sessionId, locked }) { composer = { sessionId: sessionId || null, locked: Boolean(locked) }; for (const entry of mounted.values()) renderPicker(entry); },
+    // A draft became a conversation: its explicit picker choices go out with that conversation's first message.
+    commitDraft(sessionId) {
+      for (const entry of mounted.values()) {
+        const picker = entry.picker; if (!picker?.draft) continue;
+        picker.local.set(sessionId, picker.draft); picker.choices.set(sessionId, picker.draft.value); picker.draft = null;
+        if (picker.pending && !picker.pending.sessionId) { picker.pending = null; clearTimeout(picker.timer); }
+      }
+    },
+    choices(sessionId) {
+      const out = {};
+      for (const entry of mounted.values()) { const value = entry.picker?.choices.get(sessionId); if (value) out[entry.plugin.id] = value; }
+      return Object.keys(out).length ? out : null;
+    },
+    choicesSent(sessionId) { for (const entry of mounted.values()) entry.picker?.choices.delete(sessionId); },
     commands() {
       const list = [];
       for (const entry of mounted.values()) {

@@ -116,7 +116,53 @@
         h('p', { class: 'ap-muted' }, '切换账号时仅接续当前会话的官方记录，工作区保持原位置。已经使用独立账号的会话需要保持此插件启用，或先切回默认账号。')));
   }
 
-  wb.ready().then(() => {
+  // The background surface keeps the sidebar entry and the composer's account picker current.
+  // Picking an account for an open conversation binds it now; for a new conversation the page
+  // keeps the choice and sends it with the first message.
+  function startBackground() {
+    const AUTO = 'auto';
+    let snapshot = null, loading = false, again = false, timer = null;
+    const named = id => snapshot?.accounts.find(account => account.id === id)?.label || '已移除的账号';
+    const quota = account => [account.usage?.fiveHour, account.usage?.sevenDay].some(window => Number.isFinite(window?.utilization))
+      ? ` · 5 小时 ${percent(account.usage.fiveHour)} · 每周 ${percent(account.usage.sevenDay)}` : '';
+    function publish() {
+      const accounts = snapshot.accounts, loggedIn = accounts.filter(account => account.enabled && account.auth.loggedIn === true).length;
+      wb.ui.setSidebar({ subtitle: `${loggedIn} 个已登录 · ${accounts.length} 个账号`, tone: loggedIn ? '' : 'warn' }).catch(() => {});
+      const strategy = strategies.find(([key]) => key === snapshot.settings.strategy)?.[1] || '';
+      const options = [{ value: AUTO, label: '自动选择', detail: `跟随全局策略：${strategy}` },
+        ...accounts.map(account => ({ value: account.id, label: account.label,
+          detail: `${!account.enabled ? '已停用' : account.auth.loggedIn === true ? '已登录' : account.auth.loggedIn === false ? '未登录' : '登录状态待确认'}${quota(account)}`,
+          disabled: !account.enabled || account.auth.loggedIn === false }))];
+      // Unpinned conversations show which account they used last; the picker still means "automatic".
+      const values = Object.fromEntries(Object.entries(snapshot.bindings).slice(-1000).map(([sessionId, binding]) =>
+        [sessionId, binding.pinned ? binding.accountId : { value: AUTO, label: `自动 · ${named(binding.accountId)}` }]));
+      wb.composer.setPicker({ options, value: AUTO, values, title: '本会话使用的官方账号' }).catch(() => {});
+    }
+    async function refresh() {
+      if (loading) { again = true; return; }
+      loading = true; again = false;
+      try { snapshot = await wb.backend.call('list'); publish(); } catch {}
+      finally { loading = false; if (again) void refresh(); }
+    }
+    // Session events stream during a turn, so collect them into at most one read per second.
+    const soon = () => { timer ??= setTimeout(() => { timer = null; void refresh(); }, 1000); };
+    wb.on('composer:change', async ({ sessionId, value, requestId }) => {
+      let result = { ok: true };
+      if (sessionId) {
+        try { snapshot = await wb.backend.call('bind', { sessionId, accountId: value === AUTO ? null : value }); }
+        catch (error) { result = { ok: false, message: error.message || '切换账号没有完成。' }; }
+      }
+      await wb.composer.reply(requestId, result).catch(() => {});
+      if (snapshot) publish();
+    });
+    // Bindings move when a turn starts; the backend announces its own changes as runtime events.
+    wb.on('runtime', soon);
+    wb.on('session', soon);
+    refresh();
+    setInterval(refresh, 60000);
+  }
+
+  function startPanel() {
     root.append(h('header', null, h('span', { class: 'wb-eyebrow' }, 'Optional plugin'), h('h1', null, '多账号轮询'),
       h('p', null, '由你选择账号与策略，官方 CLI 负责登录和执行。账号配置与会话绑定只保存在当前服务器。')),
     notice, content, login);
@@ -124,5 +170,8 @@
     load();
     wb.on('visibility', ({ visible }) => { if (visible) load(); });
     wb.on('session', load);
-  });
+    wb.on('runtime', load);
+  }
+
+  wb.ready().then(info => (info.surface === 'background' ? startBackground : startPanel)());
 })();

@@ -149,6 +149,36 @@ test('bindings are validated, pinned accounts never silently fail over, and unbi
   assert.equal(f.pool.ownsSession(session(SESSION)), false);
 });
 
+test('binding waits only for this conversation, and a first-message choice pins or releases the account', async t => {
+  let status = 'idle';
+  const f = await fixture(t, { getSession: id => id === SESSION ? { ...session(SESSION), status } : null });
+  const other = await f.create('选择器账号');
+  const locks = f.lockCalls();
+  await f.pool.call('bind', { sessionId: SESSION, accountId: other });
+  assert.equal(f.lockCalls(), locks, 'binding one conversation does not wait for every task');
+  for (status of ['running', 'awaiting_approval', 'stopping']) {
+    await assert.rejects(f.pool.call('bind', { sessionId: SESSION, accountId: null }), /正在运行/);
+  }
+  assert.equal(f.pool.sessionState(SESSION).pinned, true);
+  status = 'idle';
+  // 'auto' releases a pinned conversation back to the global strategy for this turn and the next;
+  // the default 'sticky' strategy keeps the account it last used while that account has quota.
+  assert.equal((await f.pool.beforeRun({ session: session(SESSION), request: { choice: 'auto' } })).accountId, other);
+  assert.deepEqual(f.pool.sessionState(SESSION), { accountId: other, transcriptAccountId: other, pinned: false });
+  f.usage.set(other, { fiveHour: { utilization: 100 }, scopes: [] });
+  assert.equal((await f.pool.beforeRun({ session: session(SESSION) })).accountId, 'primary', 'an unpinned conversation may move on');
+  f.usage.delete(other);
+  const fresh = session();
+  assert.equal((await f.pool.beforeRun({ session: fresh, request: { choice: other } })).accountId, other);
+  assert.equal(f.pool.sessionState(fresh.id).pinned, true);
+  assert.equal(f.pool.sessionState(fresh.id).accountId, other);
+  await assert.rejects(f.pool.beforeRun({ session: session(), request: { choice: 'not-an-account' } }), /所选账号/);
+  await f.pool.call('update', { id: other, enabled: false });
+  await assert.rejects(f.pool.beforeRun({ session: session(), request: { choice: other } }), /所选账号/);
+  // No choice leaves the stored binding and strategy in charge.
+  assert.equal((await f.pool.beforeRun({ session: session(), request: { choice: null } })).accountId, 'primary');
+});
+
 test('turn-boundary account changes copy only the current official transcript from its last owner', async t => {
   const f = await fixture(t);
   const other = await f.create('第二账号');

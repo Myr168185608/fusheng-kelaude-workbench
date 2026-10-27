@@ -90,10 +90,21 @@ test('manifests are validated strictly and normalizing twice changes nothing', a
   assert.throws(() => validateManifest({ ...base, main: '../evil.js' }), /路径无效/);
   assert.throws(() => validateManifest({ ...base, main: 'main.exe' }), /不受支持/);
   assert.throws(() => validateManifest({ ...base, contributes: {} }), /至少一个界面/);
-  assert.throws(() => validateManifest({ ...base, contributes: { panel: true, sidebar: true } }), /未知字段/);
+  assert.throws(() => validateManifest({ ...base, contributes: { panel: true, toolbar: true } }), /未知字段/);
   assert.throws(() => validateManifest({ ...base, contributes: { widget: true, commands: [{ id: 'go', title: 'Go', action: 'open-panel' }] } }), /需要插件声明 panel/);
   assert.throws(() => validateManifest({ ...base, contributes: { panel: true, commands: [{ id: 'go', title: 'Go', action: 'run-shell' }] } }), /action/);
   assert.throws(() => validateManifest({ ...base, icon: 'too long' }), /icon/);
+  // Slots: a sidebar entry opens the panel, a composer picker is fed by the background surface.
+  const slotted = validateManifest({ ...base, contributes: { panel: true, background: true, sidebar: { title: '账号空间', icon: 'layers' }, composer: { title: '账号' } } });
+  assert.deepEqual(slotted.contributes.sidebar, { title: '账号空间', subtitle: '', icon: 'layers' });
+  assert.deepEqual(slotted.contributes.composer, { title: '账号', icon: null });
+  assert.deepEqual(validateManifest(slotted), slotted);
+  assert.throws(() => validateManifest({ ...base, contributes: { background: true, sidebar: { title: 'X' } } }), /需要插件同时声明 panel/);
+  assert.throws(() => validateManifest({ ...base, contributes: { panel: true, composer: { title: 'X' } } }), /需要插件同时声明 background/);
+  assert.throws(() => validateManifest({ ...base, contributes: { panel: true, sidebar: {} } }), /sidebar\.title/);
+  assert.throws(() => validateManifest({ ...base, contributes: { panel: true, sidebar: { title: '十三个字的侧边栏入口标题太长' } } }), /sidebar\.title/);
+  assert.throws(() => validateManifest({ ...base, contributes: { panel: true, sidebar: { title: 'X', icon: '<svg>' } } }), /图标名/);
+  assert.deepEqual(validateManifest({ ...base, contributes: { panel: true, background: true, composer: { title: 'X', extra: 1 } } }).contributes.composer, { title: 'X', icon: null });
   assert.throws(() => validateManifest({ ...base, theme: { scheme: 'dark', tokens: TOKENS } }), /只有 type 为 theme/);
   // Names cannot hide bidi overrides or zero-width characters.
   const rlo = String.fromCodePoint(0x202e), zwsp = String.fromCodePoint(0x200b);

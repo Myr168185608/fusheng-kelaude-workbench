@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { packPlugin, serializeBundle, parseRegistry, validateManifest, minVersionOf, SURFACES, LIMITS } from '../lib/plugins.mjs';
+import { packPlugin, serializeBundle, parseRegistry, validateManifest, minVersionOf, SURFACES, SLOTS, LIMITS } from '../lib/plugins.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const workshop = path.join(root, 'workshop'), registryFile = path.join(workshop, 'registry.json');
@@ -26,7 +26,7 @@ function entry(manifest, extra) {
   return {
     id: manifest.id, type: manifest.type, name: manifest.name, version: manifest.version, description: manifest.description, author: manifest.author,
     tags: manifest.tags, permissions: manifest.permissions, icon: manifest.icon, accent: manifest.accent,
-    surfaces: theme ? [] : SURFACES.filter(s => manifest.contributes[s]), minVersion: minVersionOf(manifest), ...extra,
+    surfaces: theme ? [] : [...SURFACES, ...SLOTS].filter(s => manifest.contributes[s]), minVersion: minVersionOf(manifest), ...extra,
     ...(theme ? { preview: { scheme: manifest.theme.scheme, swatches: [...new Set(SWATCHES.map(k => manifest.theme.tokens[k]).filter(c => /^#[0-9a-f]{6}$/i.test(c || '')))] } } : {}),
   };
 }

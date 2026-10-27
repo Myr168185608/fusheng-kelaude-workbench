@@ -165,7 +165,7 @@ function connectEvents() {
   source.onmessage = event => {
     let data; try { data = JSON.parse(event.data); } catch { return; }
     if (data.type === 'session-patch') { onPatch(data); return; }
-    if (data.type === 'runtime-updated') refreshBootstrap().catch(() => {});
+    if (data.type === 'runtime-updated') { refreshBootstrap().catch(() => {}); plugins.runtimeChanged(); }
     if (data.type === 'system') { state.system = data.system; renderServer(); plugins.system(); }
     if (data.type === 'usage') { ide.usage = data.usage; renderUsage(); renderNotices(); plugins.usage(); }
     if (data.type === 'models' && Array.isArray(data.models)) { state.config.models = data.models; configureEffort(); }
@@ -1297,6 +1297,7 @@ function updateControls() {
   $('#stop-button').disabled = state.busy;
   $('#steer-button').hidden = !inRun; $('#steer-button').disabled = state.busy || state.steering || archived || !ready || state.session?.status === 'stopping' || !$('#message-input').value.trim();
   $('#model-select').disabled = inRun || terminalOwn || loading || state.busy || archived; $('#mode-select').disabled = inRun || terminalOwn || loading || state.busy || archived;
+  plugins.composer({ sessionId: state.activeId, locked: inRun || terminalOwn || loading || state.busy || archived });
   $('#effort-select').disabled = inRun || terminalOwn || loading || state.busy || archived || $('#effort-select').options.length < 2;
   $('#start-shell').disabled = ide.terminalStarting || inRun || terminalBusy || loginBusy || state.accountSwitchPending;
   $('#start-claude').disabled = ide.terminalStarting || inRun || terminalBusy || loginBusy || !ready || state.accountSwitchPending;
@@ -1448,7 +1449,7 @@ async function refreshUsage() { $('#refresh-usage').disabled = true; $('#refresh
 async function ensureSession() {
   if (state.activeId) return state.activeId;
   const draft = $('#message-input').value; const created = await api('/api/sessions', { method: 'POST', body: { model: $('#model-select').value, permissionMode: $('#mode-select').value, effort: $('#effort-select').value } });
-  state.activeId = created.id; state.selectionVersion++; storage.set('cloud-ops-workbench-active', created.id); storage.set('cloud-ops-workbench-draft:new', ''); storage.set(activeDraftKey(), draft); acceptSession(created); return created.id;
+  state.activeId = created.id; plugins.commitDraft(created.id); state.selectionVersion++; storage.set('cloud-ops-workbench-active', created.id); storage.set('cloud-ops-workbench-draft:new', ''); storage.set(activeDraftKey(), draft); acceptSession(created); return created.id;
 }
 
 /* ---------- Workspace files and editor ---------- */
@@ -1649,7 +1650,7 @@ function renderSlashMenu() { const value = $('#message-input').value; if (!/^\/[
 const safeMode = new URLSearchParams(location.search).has('safe');
 const themes = createThemeController({ safe: safeMode, onChange: onThemeChange });
 const plugins = createPluginHost({
-  api, icon, safe: safeMode, toast: message => toast(message),
+  api, icon, safe: safeMode, toast: (message, error = false) => toast(message, error), closeSidebar,
   theme: () => themes.current, usage: () => ide.usage, system: () => state.system, activeSession: () => state.session,
   version: () => state.config.version || '', currentView: () => state.view, switchView,
   openSession: id => { if (!state.sessions.some(s => s.id === id && !s.archived)) return false; switchView('chat'); selectSession(id); return true; },
@@ -1800,11 +1801,12 @@ $('#composer').addEventListener('submit', async event => {
   try {
     if (!id) {
       const created = await api('/api/sessions', { method: 'POST', body: { model: $('#model-select').value, permissionMode: $('#mode-select').value, effort: $('#effort-select').value } });
-      id = created.id; state.selectionVersion++; state.activeId = id; storage.set('cloud-ops-workbench-active', id); storage.set('cloud-ops-workbench-draft:new', ''); storage.set(activeDraftKey(), text); acceptSession(created);
+      id = created.id; plugins.commitDraft(id); state.selectionVersion++; state.activeId = id; storage.set('cloud-ops-workbench-active', id); storage.set('cloud-ops-workbench-draft:new', ''); storage.set(activeDraftKey(), text); acceptSession(created);
     }
     if (!state.pendingSend || state.pendingSend.sessionId !== id || state.pendingSend.text !== text) state.pendingSend = { sessionId: id, text, requestId: crypto.randomUUID() };
-    const result = await api(`/api/sessions/${encodeURIComponent(id)}/messages`, { method: 'POST', body: { text, requestId: state.pendingSend.requestId } });
-    state.pendingSend = null;
+    const choices = plugins.choices(id);
+    const result = await api(`/api/sessions/${encodeURIComponent(id)}/messages`, { method: 'POST', body: { text, requestId: state.pendingSend.requestId, ...(choices ? { choices } : {}) } });
+    state.pendingSend = null; plugins.choicesSent(id);
     if (id === state.activeId) { $('#message-input').value = ''; ide.attachments.delete(id); renderAttachments(); preserveDraft(); resizeInput(); ui.stuck = true; acceptSession(result); stickToBottom(); }
     await refreshBootstrap();
   } catch (error) { toast(error.message, true); }

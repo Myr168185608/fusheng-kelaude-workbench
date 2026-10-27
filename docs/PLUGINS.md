@@ -48,7 +48,7 @@
 
 | 插件 | 插件自己负责 | 启用后的操作 |
 | --- | --- | --- |
-| [`account-pool`](../plugins/account-pool/README.md) 多账号轮询 | 独立账号配置、官方登录状态、默认账号、会话绑定、逐轮轮询与额度策略、当前会话记录迁移 | 添加配置，按官方命令登录后刷新；选择保持当前、轮询或余量优先。最多 10 个配置 |
+| [`account-pool`](../plugins/account-pool/README.md) 多账号轮询 | 独立账号配置、官方登录状态、默认账号、会话绑定、逐轮轮询与额度策略、当前会话记录迁移；侧边栏「账号空间」入口与输入框账号选择器 | 添加配置，按官方命令登录后刷新；选择保持当前、轮询或余量优先。最多 10 个配置 |
 | [`task-resume`](../plugins/task-resume/README.md) 任务断点续跑 | 检查点、恢复状态、有限次数的恢复队列 | 从原会话检查点继续；自动恢复另外默认关闭，开启后仍受次数、等待时间、共享执行锁和审批状态约束 |
 
 两者可分别启用。仅启用多账号不会自动重试任务；仅启用续跑则继续使用底座原有的账号配置。账号切换只在新一轮开始前进行；续跑使用官方 `--resume`，不是恢复进程内存，也不能保证外部操作恰好执行一次。
@@ -77,13 +77,13 @@
 | --- | --- |
 | `managesExecutionContext: true` | 返回对象声明本插件会改变执行配置；宿主在调用其 `beforeRun` 前先持久保存会话归属，避免部分准备失败后丢失配置保护 |
 | `call(method, params)` | 只处理本插件白名单方法；需要执行或修改运行状态时，使用 `context.withExclusive(fn)`，并在异步动作前后检查 `context.isActive()` |
-| `beforeRun({session,cwd,request,run,kind})` | 宿主已为这个会话占好运行位，不应再次拿锁。不同会话可以并行运行，其他会话的任务可能正在进行，也可能紧接着调用 `beforeRun`；需要串行的插件状态请自己排队（例如账号插件的操作队列）。独占操作进行期间宿主不会开始新的一轮。当前可返回 `{runnerOptions:{configDir},ownsContext}`，`configDir` 必须是绝对路径 |
+| `beforeRun({session,cwd,request,run,kind})` | 宿主已为这个会话占好运行位，不应再次拿锁。不同会话可以并行运行，其他会话的任务可能正在进行，也可能紧接着调用 `beforeRun`；需要串行的插件状态请自己排队（例如账号插件的操作队列）。独占操作进行期间宿主不会开始新的一轮。`request.choice` 是本插件[输入框选择器](#侧边栏入口与输入框选择器)在新对话发送第一条消息时带来的值，没有时为 `null`；宿主只把属于本插件的那一项交给它，并已检查格式，含义由插件自己校验。当前可返回 `{runnerOptions:{configDir},ownsContext}`，`configDir` 必须是绝对路径 |
 | `onEvent(payload)` | 按原运行顺序接收事件；不得把未知或旧轮次事件写入当前检查点 |
 | `onExit(payload)` / `onStop(payload)` | 记录结束、手动停止或服务中断；是否恢复属于插件策略 |
 | `executionStatus()` | 返回 `{ready: true \| false \| null, label, detail}`，仅报告就绪状态，不暴露凭据 |
 | `close()` | 停止插件自己的队列与监控，等待必要持久化，不影响其他插件 |
 
-`context` 提供该插件私有 `dataDir`、`binary`、`workspaceRoot`、`getSession`、`listSessions`、`startTurn`、`isBusy`、`isClosing`、`withExclusive`、`isActive` 和 `runtimeChanged()`。改变登录状态或执行设置后调用 `runtimeChanged()`，通知页面重新读取就绪状态；宿主聚合的结果通过 `bootstrap.execution` 提供。`isBusy()` 在任何任务、终端或文件/配置操作进行时为真；`withExclusive(fn)` 要等它们全部结束才执行，执行期间宿主拒绝新任务。恢复启动必须走 `startTurn`，继续复用底座的账号预检、按会话的运行占位、并行上限与原有权限模式；不要另起绕过宿主的任务进程。
+`context` 提供该插件私有 `dataDir`、`binary`、`workspaceRoot`、`getSession`、`listSessions`、`startTurn`、`isBusy`、`isClosing`、`withExclusive`、`isActive` 和 `runtimeChanged()`。改变登录状态或执行设置后调用 `runtimeChanged()`，通知页面重新读取就绪状态，申请了 `backend` 的插件界面也会收到 `runtime` 事件；宿主聚合的结果通过 `bootstrap.execution` 提供。`isBusy()` 在任何任务、终端或文件/配置操作进行时为真；`withExclusive(fn)` 要等它们全部结束才执行，执行期间宿主拒绝新任务。恢复启动必须走 `startTurn`，继续复用底座的账号预检、按会话的运行占位、并行上限与原有权限模式；不要另起绕过宿主的任务进程。
 
 后端数据在 `<WORKBENCH_DATA>/server-plugin-data/<id>/`，与普通 SDK 的 256 KB `storage` 分开。账号元数据和续跑检查点使用原子 JSON 写入；官方 CLI 自己管理额外账号配置内的认证材料。只有本插件所需的状态通过受权限控制的 API 返回给界面，不把原始会话或认证材料作为通用 SDK 数据提供。
 
@@ -206,6 +206,20 @@ workbench.ready().then(async info => {
 
 工作台还会自动为面板生成「打开「…」」命令，为悬浮窗生成「显示 / 隐藏「…」」命令。
 
+### 侧边栏入口与输入框选择器
+
+从工作台 v1.6.0 起，插件还可以在两个固定位置放一个小控件。它们不是独立的界面，没有自己的 iframe，由宿主绘制、由插件更新内容：
+
+| 位置 | 声明 | 显示在哪里 | 选项 |
+| --- | --- | --- | --- |
+| `sidebar` | `"sidebar": { "title": "账号空间", "subtitle": "…", "icon": "layers" }` | 左侧边栏底部的一行入口，点击打开本插件面板。**需要同时声明 `panel`** | `title` 必填，最多 12 个字符；`subtitle` 最多 32 个字符，默认显示插件名；`icon` 为工作台图标名，默认用插件图标 |
+| `composer` | `"composer": { "title": "账号", "icon": "layers" }` | 输入框下方、模型选择旁的一个下拉框。**需要同时声明 `background`**，选项由后台界面提供 | `title` 必填，最多 12 个字符，作为无障碍名称和悬停提示；`icon` 同上 |
+
+- 侧边栏入口用 `wb.ui.setSidebar({ subtitle, tone })` 更新副标题，例如「2 个已登录 · 5 个账号」。
+- 选择器在后台界面调用 `wb.composer.setPicker(…)` 之前保持隐藏。用户改选后，插件收到 [`composer:change`](#事件) 事件，处理完必须用 `wb.composer.reply(requestId, { ok, message })` 回复。回复失败时，选择器退回原值并提示 `message`；15 秒内没有回复，选择器会解除等待状态。
+- 当前会话运行中、等待审批或终端占用时，选择器锁定，不能改选。
+- 还没有会话（新对话）时，改选只发给插件知会一声，由页面记住。这个值会随第一条消息以 `request.choice` 交给本插件后端的 `beforeRun`，只发一次。没有后端的插件只能用 `sessionId` 不为 `null` 的改选。
+
 <details>
 <summary>可用的图标名</summary>
 <br>
@@ -236,7 +250,7 @@ workbench.ready().then(async info => {
 
 - 权限是**全有或全无**的：启用插件即授予它申请的全部权限。不需要的权限请不要申请，审核时这是第一项检查。
 - 插件更新后如果**申请了新权限**，它会暂停运行，直到你再次确认。
-- 不需要权限的能力：`workbench.info`、`theme.get`、`ui.openPanel`、`ui.resize`、`ui.hide`，以及 `theme`、`visibility`、`command`、`statusbar:click` 事件。
+- 不需要权限的能力：`workbench.info`、`theme.get`、`ui.openPanel`、`ui.resize`、`ui.hide`、`ui.setSidebar`、`composer.setPicker`、`composer.reply`，以及 `theme`、`visibility`、`command`、`statusbar:click`、`composer:change` 事件。侧边栏入口和选择器只能由声明了它们的插件更新，用户在插件管理里就能看到。
 
 ## SDK 参考
 
@@ -286,6 +300,9 @@ catch (error) { if (error.code === 'rate') console.debug('稍后再提示'); }
 | `wb.ui.toast(text)` | `ui.toast` | 显示提示，最多 200 个字符，自动加上「插件名」前缀。每 2 秒最多 1 条 |
 | `wb.ui.setStatus({ text, tone, title })` | `ui.statusbar` | 在状态栏显示文字：`text` 最多 48 个字符；`tone` 为 `ok` `warn` `bad`；`title` 是悬停提示，最多 120 个字符。工作台会自动加上插件图标。传 `null` 清除 |
 | `wb.ui.openPanel()` | — | 打开本插件的面板（需要声明 `panel`），每 2 秒最多 1 次 |
+| `wb.ui.setSidebar({ subtitle, tone })` | — | 需要声明 `sidebar`：更新侧边栏入口的副标题（最多 32 个字符）；`tone` 为 `ok` `warn` `bad` 或空。传 `null` 恢复 manifest 中的默认值 |
+| `wb.composer.setPicker({ options, value, values, title, disabled })` | — | 需要声明 `composer`：设置输入框选择器。`options` 为 1–16 个 `{ value, label, detail?, disabled? }`，`value` 由字母、数字和 `_ . : -` 组成，最长 64 个字符，`label` 最多 24 个字符，`detail` 是悬停说明；`value` 是没有单独记录的会话和新对话的默认值；`values` 是 `{ 会话 id: value 或 { value, label } }`，最多 1000 项，`label` 只替换这个会话显示的文字；`disabled` 为 `true` 时整体锁定。传 `null` 隐藏 |
+| `wb.composer.reply(requestId, { ok, message })` | — | 回复一次 `composer:change`。`ok: false` 时退回原值并提示 `message`（最多 160 个字符）。返回是否找到了这次请求 |
 | `wb.ui.resize({ height })` | — | 调整小组件高度（80–640）；悬浮窗用 `{ width, height }`（48–420）。返回实际尺寸 |
 | `wb.ui.hide()` | — | 仅悬浮窗：隐藏自己。用户可以在命令面板里重新显示 |
 | `wb.storage.get(key)` | `storage` | 读取，不存在时返回 `null` |
@@ -399,6 +416,8 @@ const off = workbench.on('usage', usage => render(usage));
 | `visibility` | — | `{ visible }`：浏览器标签页切走、切到别的面板、离开监控页或悬浮窗被隐藏时为 `false`；`background` 界面始终为 `false`。看不见时请暂停动画 |
 | `command` | — | `{ id }`：用户在命令面板里执行了本插件的命令 |
 | `statusbar:click` | — | `{}`：用户点击了本插件的状态栏文字 |
+| `composer:change` | — | `{ sessionId, value, requestId }`：用户改选了本插件的输入框选择器；`sessionId` 为 `null` 表示还没有会话的新对话。发给本插件所有已加载的界面，必须用 `composer.reply()` 回复 |
+| `runtime` | `backend` | `{}`：本插件或其他可信后端改变了自己的状态（例如在面板里新增账号、改了绑定），请重新读取 |
 | `storage:change` | `storage` | `{ key, value }`：本插件的其他界面修改了数据，删除时 `value` 为 `null` |
 | `activity` | `activity` | `{ kind, sessionId, current, tool?, at }`，`kind` 为 `start` `tool` `approval` `stop` `done` `error`；`current` 表示是否是当前打开的会话 |
 | `session` | `sessions.read` | 会话摘要（不含 `metrics`）：新建、改名、状态变化时触发 |

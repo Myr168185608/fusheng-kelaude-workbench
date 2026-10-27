@@ -73,6 +73,13 @@ export function command(command, args, options = {}) {
 
 export const shellQuote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 export const systemdQuote = value => `"${String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('%', '%%')}"`;
+// Path settings such as WorkingDirectory= take the rest of the line literally: older systemd (247, Debian 11)
+// rejects a quoted value, so only specifiers are escaped and characters that cannot be written are refused.
+export function systemdPath(value) {
+  const text = String(value);
+  if (!path.isAbsolute(text) || /[\x00-\x1f\x7f"'\\]/.test(text) || text !== text.trim()) throw new Error(`systemd 路径不能包含引号、反斜杠、控制字符或首尾空白：${text}`);
+  return text.replaceAll('%', '%%');
+}
 
 export function deploymentEnvironment(config) {
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('WORKBENCH_') && !['PORT', 'CLAUDE_BINARY'].includes(key)));

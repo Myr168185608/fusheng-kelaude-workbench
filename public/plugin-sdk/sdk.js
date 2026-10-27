@@ -114,6 +114,7 @@
     ui: {
       toast: function (text) { return call('ui.toast', { text: String(text) }); },
       setStatus: function (status) { return call('ui.setStatus', status === null || status === undefined ? null : typeof status === 'object' ? status : { text: String(status) }); },
+      setSidebar: function (state) { return call('ui.setSidebar', state === null || state === undefined ? null : typeof state === 'object' ? state : { subtitle: String(state) }); },
       openPanel: function () { return call('ui.openPanel'); },
       resize: function (size) { return call('ui.resize', size); },
       hide: function () { return call('ui.hide'); },
@@ -133,7 +134,11 @@
       active: function () { return call('sessions.active'); },
       open: function (id) { return call('sessions.open', { id: id }); },
     },
-    composer: { insert: function (text) { return call('composer.insert', { text: String(text) }); } },
+    composer: {
+      insert: function (text) { return call('composer.insert', { text: String(text) }); },
+      setPicker: function (picker) { return call('composer.setPicker', picker === undefined ? null : picker); },
+      reply: function (requestId, result) { return call('composer.reply', Object.assign({}, result || {}, { requestId: String(requestId) })); },
+    },
     theme: {
       get: function () { return info ? info.theme : null; },
       token: function (name) { return getComputedStyle(root).getPropertyValue('--wb-' + name).trim(); },

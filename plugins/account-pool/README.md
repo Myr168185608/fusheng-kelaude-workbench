@@ -8,6 +8,7 @@
 2. 点击「添加账号配置」，打开该配置的「登录说明」。以运行工作台的同一系统用户，在同一服务器执行给出的 `claude auth login --claudeai` 命令。登录期间请停止工作台任务；命令不会由网页自动执行。
 3. 登录完成后点击「刷新」。账号邮箱仅显示脱敏形式，密码、OAuth Token 和授权码不进入插件存储。
 4. 选择保持当前账号、每轮轮询或余量最多优先。可选自动切换阈值为 90%、95%、98%、100%。指定会话可绑定一个账号，解除绑定后继续跟随全局策略。
+5. 侧边栏的「账号空间」显示已登录账号数和账号总数，点击打开本插件面板。输入框旁的账号选择器选「自动选择」或某个账号：已有会话立即改绑（本轮运行中锁定）；新对话在发送第一条消息时一并生效。未固定的会话显示「自动 · 上次使用的账号」。
 
 额外配置在 `<DATA_DIR>/server-plugin-data/account-pool/profiles/<id>/config`，由官方 `CLAUDE_CONFIG_DIR` 隔离。默认账号沿用官方默认配置，插件不复制或改写凭据。账号不存在、未确认登录、停用或无可用额度时明确拒绝启动，不悄悄使用另一个未授权配置。固定绑定不会自动轮换。
 
@@ -23,10 +24,10 @@
 
 `server.mjs` 导出 `createAccountPool(options)`。`dataDir` 是插件私有目录，`workspaceRoot`、`binary`、`legacyConfigDir`、`env` 由宿主提供。`withExclusive(fn)` 必须使用与任务、终端相同的执行互斥，`isActive()` 必须反映当前启用和授权状态；`getSession(id)` 用于验证会话绑定。测试可注入 `authProvider`、`usageFactory`、`exec` 与 `now`。
 
-- `call(method, params)`：`list`、`create`、`update`、`settings`、`bind`、`refresh`、`loginCommand`。写入与探测均通过共享锁；返回值只包含插件元数据与脱敏状态。
-- `beforeRun({session,cwd,request})`：宿主已持执行锁时调用，返回 `{accountId,configDir}`。不得在此嵌套获取宿主锁。
-- `onEvent({session,event})`：接收通用 `quota` 与 `rate_limit` 事件，更新当前账号的额度观测。
-- `onExit()`、`close()`：退出不自动重试，关闭停止监控。
+- `call(method, params)`：`list`、`create`、`update`、`settings`、`bind`、`refresh`、`loginCommand`。`create`、`update`、`settings`、`refresh` 通过共享锁；`bind` 只排在本插件队列里，并拒绝正在运行的会话，因此其他会话运行时也能切换；返回值只包含插件元数据与脱敏状态。
+- `beforeRun({session,cwd,request,kind})`：宿主已持执行锁时调用，返回 `{accountId,configDir}`。不得在此嵌套获取宿主锁。`request.choice` 是新对话第一条消息带来的选择：`auto` 解除固定，账号 ID 固定到该账号（须存在且已启用）。
+- `onEvent({session,event})`：接收通用 `quota` 与 `rate_limit` 事件，更新本轮所用账号的额度观测。
+- `onExit({session})`、`close()`：退出不自动重试，关闭停止监控。
 - `sessionState(id)`、`ownsSession(session)`：读取插件记录的当前账号及会话记录来源。
 - `executionStatus()`：空闲时借助共享锁刷新登录状态（缓存 60 秒）；任务或终端忙时仅使用缓存，返回可运行性和简短说明，不暴露邮箱。
 
@@ -34,5 +35,6 @@
 
 ## 版本记录
 
+- 1.1.0：侧边栏「账号空间」入口和输入框账号选择器；切换已有会话的账号不再需要等其他会话结束；新对话可以在发送前选好账号。需要工作台 1.6.0 及以上。
 - 1.0.1：按模型系列匹配每周额度，Fable 和指定版本（如 `claude-opus-4-6`）的轮次也计入各自系列的周额度；`seven_day_fable` 等限额类型显示为「Fable 本周额度」。需要工作台 1.3.0 及以上。
 - 1.0.0：首个版本。

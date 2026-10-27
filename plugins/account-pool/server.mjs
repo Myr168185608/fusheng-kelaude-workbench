@@ -10,6 +10,9 @@ import { routeCandidates, shouldSwitch, SWITCH_LEVELS } from './routing.mjs';
 import { transferConversation } from './transfer.mjs';
 
 export const PRIMARY_ACCOUNT_ID = 'primary';
+// Composer choice meaning "no fixed account": the session follows the global strategy.
+export const AUTO_CHOICE = 'auto';
+const RUNNING = ['running', 'awaiting_approval', 'stopping'];
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const STRATEGIES = ['sticky', 'round-robin', 'quota'];
 const fail = (status, message) => Object.assign(new Error(message), { status, statusCode: status });
@@ -63,6 +66,7 @@ class AccountPool {
     this.state = { version: 1, defaultAccountId: PRIMARY_ACCOUNT_ID, settings: { strategy: 'sticky', switchAt: 100 },
       cursor: null, accounts: [{ id: PRIMARY_ACCOUNT_ID, label: '默认账号', enabled: true, createdAt: date(now) }], bindings: {} };
     this.runtime = new Map();
+    this.runAccounts = new Map();
     this.operations = Promise.resolve();
     this.closed = false;
   }
@@ -193,6 +197,29 @@ class AccountPool {
         note: '在工作台所在服务器，以运行工作台的同一系统用户执行。停止运行中的任务后再登录；完成后点击“刷新账号状态”。', accountId: account.id };
     }
     if (!['create', 'update', 'settings', 'bind', 'refresh'].includes(method)) throw fail(404, '未知账号插件方法。');
+    // A binding only records which account the session's next turn uses; its records move in beforeRun.
+    // It therefore waits for this plugin's queue, not for other sessions' tasks to finish.
+    if (method === 'bind') return this.#enqueue(async () => {
+      this.#active();
+      fields(params, ['sessionId', 'accountId']);
+      if (typeof params.sessionId !== 'string' || !UUID.test(params.sessionId)) throw fail(400, '会话 ID 无效。');
+      const session = await this.getSession(params.sessionId);
+      if (!session || session.id !== params.sessionId) throw fail(404, '会话不存在。');
+      // The page locks its picker during a turn too. A binding made while a turn is starting is still safe:
+      // beforeRun records the account the transcript now lives under, and the next turn moves it from there.
+      if (RUNNING.includes(session.status)) throw fail(409, '这个会话正在运行，请等本轮结束后再切换账号。');
+      if (params.accountId !== null && !this.#record(params.accountId).enabled) throw fail(409, '无法绑定停用账号。');
+      const previous = structuredClone(this.state);
+      try {
+        const old = this.state.bindings[params.sessionId];
+        this.state.bindings[params.sessionId] = { accountId: params.accountId || old?.accountId || this.state.defaultAccountId,
+          transcriptAccountId: old?.transcriptAccountId || PRIMARY_ACCOUNT_ID, pinned: params.accountId !== null };
+        this.#active();
+        await this.#persist();
+      } catch (error) { this.state = previous; throw error; }
+      this.onUpdate();
+      return this.snapshot();
+    });
     return this.withExclusive(() => this.#enqueue(async () => {
       this.#active();
       if (method === 'refresh') {
@@ -233,15 +260,6 @@ class AccountPool {
             if (!SWITCH_LEVELS.includes(params.switchAt)) throw fail(400, '切换阈值仅支持 90、95、98、100。');
             this.state.settings.switchAt = params.switchAt;
           }
-        } else if (method === 'bind') {
-          fields(params, ['sessionId', 'accountId']);
-          if (typeof params.sessionId !== 'string' || !UUID.test(params.sessionId)) throw fail(400, '会话 ID 无效。');
-          const session = await this.getSession(params.sessionId);
-          if (!session || session.id !== params.sessionId) throw fail(404, '会话不存在。');
-          if (params.accountId !== null && !this.#record(params.accountId).enabled) throw fail(409, '无法绑定停用账号。');
-          const old = this.state.bindings[params.sessionId];
-          this.state.bindings[params.sessionId] = { accountId: params.accountId || old?.accountId || this.state.defaultAccountId,
-            transcriptAccountId: old?.transcriptAccountId || PRIMARY_ACCOUNT_ID, pinned: params.accountId !== null };
         }
         this.#active();
         await this.#persist();
@@ -253,7 +271,7 @@ class AccountPool {
 
   /** Called only while the host owns the task/terminal/probe lock. Routing happens
    * at turn boundaries; this plugin never repeats an interrupted request. */
-  async beforeRun({ session, cwd = this.workspaceRoot, request = {} } = {}) {
+  async beforeRun({ session, cwd = this.workspaceRoot, request = {}, kind = 'run' } = {}) {
     this.#active();
     if (!session || !UUID.test(session.id) || typeof cwd !== 'string' || !path.isAbsolute(cwd)) throw fail(400, '会话运行参数无效。');
     const relative = path.relative(this.workspaceRoot, cwd);
@@ -264,7 +282,16 @@ class AccountPool {
         if (record.enabled) { this.#active(); await this.#refresh(record.id, { usage: true }); }
       }
       this.#active();
-      const binding = this.state.bindings[session.id];
+      let binding = this.state.bindings[session.id];
+      // A choice made in the composer before this conversation existed arrives with its first message.
+      if (typeof request.choice === 'string') {
+        if (request.choice === AUTO_CHOICE) { if (binding?.pinned) binding = { ...binding, pinned: false }; }
+        else {
+          const chosen = this.state.accounts.find(account => account.id === request.choice);
+          if (!chosen?.enabled) throw fail(409, '所选账号不存在或已停用，请在输入框重新选择账号。');
+          binding = { accountId: chosen.id, transcriptAccountId: binding?.transcriptAccountId || PRIMARY_ACCOUNT_ID, pinned: true };
+        }
+      }
       const model = request.model || session.model;
       const { strategy, switchAt } = this.state.settings;
       const preferredId = binding?.accountId || this.state.defaultAccountId;
@@ -298,18 +325,22 @@ class AccountPool {
         this.state.cursor = selected.id;
         await this.#persist();
       } catch (error) { this.state = previous; throw error; }
+      // Only chat turns report their exit; terminals keep no per-turn account.
+      if (kind === 'run') this.runAccounts.set(session.id, selected.id);
       this.onUpdate();
       return { accountId: selected.id, configDir: this.#configDir(selected.id) };
     });
   }
 
   onEvent({ session, event } = {}) {
-    const binding = this.state.bindings[session?.id];
-    if (!binding || this.closed || !this.isActive()) return;
-    if (event?.type === 'quota' || event?.type === 'rate_limit') this.#monitor(binding.accountId).observe?.(event);
+    // Quota events belong to the account this turn started on, even if the session was rebound meanwhile.
+    const accountId = this.runAccounts.get(session?.id) || this.state.bindings[session?.id]?.accountId;
+    if (!accountId || this.closed || !this.isActive()) return;
+    if (event?.type === 'quota' || event?.type === 'rate_limit') this.#monitor(accountId).observe?.(event);
   }
 
-  onExit() { /* Routing is persisted before launch; no automatic replay occurs. */ }
+  // Routing is persisted before launch; no automatic replay occurs.
+  onExit({ session } = {}) { this.runAccounts.delete(session?.id); }
 
   async close() {
     this.closed = true;

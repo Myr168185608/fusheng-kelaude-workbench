@@ -911,6 +911,23 @@ button.flow-head:hover .flow-chevron{color:var(--ink-3)}
 .plugin-status[data-tone="ok"] .plugin-status-text{color:var(--brand-2)}
 .plugin-status[data-tone="warn"] .plugin-status-text{color:var(--amber)}
 .plugin-status[data-tone="bad"] .plugin-status-text{color:var(--red)}
+.plugin-sidebar:empty{display:none}
+.sidebar-plugin{display:flex;align-items:center;gap:11px;width:100%;padding:14px 22px;border-top:1px solid color-mix(in srgb,var(--side-ink) 5%,transparent);color:var(--side-ink);text-align:left;transition:background .15s}
+.sidebar-plugin:hover{background:color-mix(in srgb,var(--side-ink) 4%,transparent)}
+.sidebar-plugin>span:first-child{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:30px;height:30px;border:1px solid color-mix(in srgb,var(--side-accent) 17%,transparent);border-radius:9px;color:var(--side-accent);background:color-mix(in srgb,var(--side-accent) 5%,transparent)}
+.sidebar-plugin>span:first-child .plugin-glyph{width:22px;height:22px}
+.sidebar-plugin svg{width:17px;height:17px}
+.sidebar-plugin>span:nth-child(2){min-width:0}
+.sidebar-plugin strong{display:block;font-size:12.5px;font-weight:550}
+.sidebar-plugin small{display:block;font-size:11.5px;color:var(--side-ink-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar-plugin[data-tone="warn"] small{color:var(--amber)}
+.sidebar-plugin[data-tone="bad"] small{color:var(--red)}
+.sidebar-plugin>span:last-child{margin-left:auto;color:var(--side-ink-3);display:flex}
+.plugin-pickers{display:contents}
+.composer-select.plugin-picker{background:var(--brand-tint);border-color:var(--brand-line);color:var(--brand)}
+.composer-select.plugin-picker select{max-width:150px}
+.composer-select.plugin-picker .plugin-glyph{width:16px;height:16px;font-size:10px;border-radius:4px}
+.composer-select.plugin-picker.waiting{opacity:.7}
 .safe-banner{background:var(--blue-soft);border-bottom:1px solid color-mix(in srgb,var(--blue) 22%,var(--line));padding:9px 24px;display:flex;align-items:center;gap:9px;font-size:13px;color:var(--blue);flex-shrink:0}
 .safe-banner svg{width:16px;height:16px}
 .safe-banner .text-button{margin-left:auto;color:var(--blue)}

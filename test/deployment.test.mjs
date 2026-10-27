@@ -7,7 +7,7 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {deploy, parseArguments} from '../scripts/deploy.mjs';
 import {doctor} from '../scripts/doctor.mjs';
-import {parseEnv, deploymentEnvironment} from '../scripts/deployment-utils.mjs';
+import {parseEnv, deploymentEnvironment, systemdPath} from '../scripts/deployment-utils.mjs';
 
 async function fixture(t) {
   const temp = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'workbench-deploy-'));
@@ -45,6 +45,8 @@ test('fresh install uses a supplied password, binds loopback, and upgrade preser
   assert.equal((await fs.stat(authFile)).mode & 0o777, 0o600);
   const config = await fs.readFile(first.configFile, 'utf8');
   assert.equal(parseEnv(config).WORKBENCH_HOST, '127.0.0.1');
+  // systemd 247 refuses a quoted WorkingDirectory= and marks the whole unit as bad-setting.
+  assert.match(await fs.readFile(path.join(f.target, 'workbench.service'), 'utf8'), new RegExp(`^WorkingDirectory=${f.target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
   await fs.writeFile(path.join(f.target, 'data/conversation.json'), '{"valuable":true}');
   const second = await deploy({target: f.target}, f);
   assert.notEqual(first.release, second.release);
@@ -111,6 +113,11 @@ test('doctor verifies the terminal executable and uses the same auth command as 
   assert.equal(report.checks.find(c => c.id === 'claude-auth').status, 'pass');
   assert.equal(calls[0][0], '/usr/bin/python3');
   assert.deepEqual(calls.at(-1)[1], ['auth', 'status']);
+});
+
+test('systemd path settings are written unquoted, with specifiers escaped and unwritable characters refused', () => {
+  assert.equal(systemdPath('/srv/my workbench/100%'), '/srv/my workbench/100%%');
+  for (const bad of ['relative/dir', '/srv/"quoted"', '/srv/back\\slash', '/srv/new\nline', '/srv/trailing ']) assert.throws(() => systemdPath(bad), /systemd 路径/);
 });
 
 test('configuration parsing does not execute shell syntax and deployment does not inherit another workbench configuration', () => {

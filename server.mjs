@@ -13,7 +13,7 @@ import {registerIDE} from './lib/api-ide.mjs';
 import {LiveFeed} from './lib/live.mjs';
 import {ModelCatalog,contextKey,isModel} from './lib/models.mjs';
 import {PluginManager,PluginError} from './lib/plugins.mjs';
-import {ServerPluginHost} from './lib/server-plugins.mjs';
+import {ServerPluginHost,validChoices} from './lib/server-plugins.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 // Shown in the page; release is the directory name under releases/ when deployed from a release tree.
 const version=JSON.parse(await fs.readFile(path.join(root,'package.json'),'utf8')).version,release=path.basename(path.dirname(root))==='releases'?path.basename(root):null;
@@ -155,9 +155,11 @@ export async function createWorkbench(options={}){
   }
  }
  app.post('/api/sessions/:id/messages',async(req,res)=>{
- const s=req.session,text=req.body?.text,requestId=req.body?.requestId;
+ const s=req.session,text=req.body?.text,requestId=req.body?.requestId,choices=req.body?.choices;
  if(typeof text!=='string'||!text.trim()||text.length>30000)return send(res,400,'请输入 1–30000 个字符。');
- const r=await startTurn(s,text,{requestId});
+ // Values picked in plugin composer pickers before this conversation existed; each plugin only sees its own.
+ if(choices!==undefined&&!validChoices(choices))return send(res,400,'输入框选择项无效。');
+ const r=await startTurn(s,text,{requestId,...(choices?{choices}:{})});
  if(r.msg)return send(res,r.code,r.msg);
  res.status(202).json(sessionView(s));
  });

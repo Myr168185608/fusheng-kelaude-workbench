@@ -4,7 +4,7 @@ import os from 'node:os';
 import {randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {hashPassword} from '../lib/auth.mjs';
-import {parseEnv, validateConfig, inside, exists, assertNoSymlink, writeNew, command, shellQuote, systemdQuote} from './deployment-utils.mjs';
+import {parseEnv, validateConfig, inside, exists, assertNoSymlink, writeNew, command, shellQuote, systemdQuote, systemdPath} from './deployment-utils.mjs';
 
 const sourceRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const marker = 'fusheng-kelaude-workbench-deployment';
@@ -37,7 +37,7 @@ async function copySource(source, destination) {
 }
 
 function renderService(target) {
-  return `[Unit]\nDescription=Fusheng Kelaude Workbench\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nWorkingDirectory=${systemdQuote(target)}\nExecStart=${systemdQuote(process.execPath)} ${systemdQuote(path.join(target, 'current/scripts/run-deployment.mjs'))} ${systemdQuote(path.join(target, 'workbench.env'))}\nRestart=on-failure\nRestartSec=5\nKillMode=mixed\nTimeoutStopSec=30\nUMask=0077\nNoNewPrivileges=yes\nRestrictSUIDSGID=yes\n\n[Install]\nWantedBy=default.target\n`;
+  return `[Unit]\nDescription=Fusheng Kelaude Workbench\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nWorkingDirectory=${systemdPath(target)}\nExecStart=${systemdQuote(process.execPath)} ${systemdQuote(path.join(target, 'current/scripts/run-deployment.mjs'))} ${systemdQuote(path.join(target, 'workbench.env'))}\nRestart=on-failure\nRestartSec=5\nKillMode=mixed\nTimeoutStopSec=30\nUMask=0077\nNoNewPrivileges=yes\nRestrictSUIDSGID=yes\n\n[Install]\nWantedBy=default.target\n`;
 }
 
 export async function deploy(options, {source = sourceRoot, run = command} = {}) {
