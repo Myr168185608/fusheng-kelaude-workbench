@@ -607,6 +607,42 @@ test('streaming changes arrive as ordered SSE patches that line up with live sna
   assert.equal(full.events.some(e => e.type.startsWith('thinking')), false);
 });
 
+test('answers to a page\'s own requests carry the change revision, and quiet CLI events ask for no refetch', async t => {
+  const f = await fixture(t); await f.login(); const s = await f.create({ title: '修订号' });
+  const controller = new AbortController();
+  const response = await fetch(`${f.base}/api/events?patches=1`, { headers: { Cookie: f.cookie }, signal: controller.signal });
+  t.after(() => controller.abort());
+  const sse = sseReader(response);
+  await sse.next(data => data.type === 'connected');
+  const started = await f.request(`/api/sessions/${s.id}/messages`, { method: 'POST', body: { text: '开始' } });
+  assert.equal(started.status, 202);
+  assert.equal('events' in started.body, false, 'mutation answers use the live view');
+  assert.equal(started.body.messages.at(-1).text, '开始');
+  const running = await sse.next(data => data.type === 'session-updated' && data.summary?.status === 'running');
+  assert.equal(running.epoch, started.body.live.epoch);
+  assert(Number.isInteger(running.rev) && started.body.live.rev >= running.rev, 'the answer already contains the announced change');
+  const call = f.fake.calls[0];
+  for (const event of [{ type: 'session', sessionId: CLAUDE_SESSION }, { type: 'rate_limit', status: 'allowed', rateLimited: false, windows: {} },
+    { type: 'quota', source: 'official-cli-usage', fiveHour: { utilization: 3 } }]) call.emit(event);
+  call.emit({ type: 'task', id: 'task-1', status: 'running', description: '子代理' });
+  const patch = await sse.next(data => data.type === 'session-patch');
+  assert.deepEqual(patch.ops.map(op => [op.op, op.task?.status]), [['task', 'running']]);
+  const capabilities = { type: 'capabilities', commands: [{ name: 'compact' }], models: [], agents: [], version: '2.1.300' };
+  call.emit(capabilities);
+  const changed = await sse.next(data => data.type === 'session-updated' && data.sessionId === s.id);
+  assert(changed.rev > running.rev);
+  sse.clear(); call.emit({ ...capabilities });
+  const quiet = await sse.drain(450);
+  assert.equal(quiet.some(data => data.type === 'session-updated' && data.sessionId === s.id), false,
+    'session ids, quota reports, allowed rate limits and unchanged capabilities need no snapshot');
+  const live = (await f.request(`/api/sessions/${s.id}?view=live`)).body;
+  assert.equal(live.live.rev, changed.rev); assert.equal(live.tasks[0].status, 'running');
+  const stopped = await f.request(`/api/sessions/${s.id}/stop`, { method: 'POST', body: {} });
+  const stopping = await sse.next(data => data.type === 'session-updated' && data.sessionId === s.id);
+  assert(stopped.body.live.rev >= stopping.rev && stopping.rev > changed.rev);
+  assert(Array.isArray((await f.request(`/api/sessions/${s.id}`)).body.events), 'the full view keeps the audit log');
+});
+
 test('pages opened before live patches keep getting debounced session-updated while a reply streams', { timeout: 10_000 }, async t => {
   const f = await fixture(t); await f.login(); const s = await f.create({ title: '旧页面' });
   const controller = new AbortController(); t.after(() => controller.abort());

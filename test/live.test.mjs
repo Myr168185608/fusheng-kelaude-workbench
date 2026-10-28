@@ -101,14 +101,16 @@ test('reply text and the end of a run close any thinking phase that never report
   assert.equal(session.events.some(e => e.type.startsWith('thinking')), false, 'thinking traffic stays out of the audit log');
 });
 
-test('tools and usage are patched, while status, permission and task changes need a snapshot', () => {
+test('tools, tasks and usage are patched, while status and permission changes need a snapshot', () => {
   const { frames, feed, session, apply } = harness();
   const output = '输出'.repeat(4000);
   assert.equal(apply({ type: 'tool', id: 'toolu_1', name: 'Bash', input: { command: 'ls' }, status: 'running' }), true);
   assert.equal(apply({ type: 'tool', id: 'toolu_1', name: 'Bash', input: { command: 'ls' }, status: 'completed', output }), true);
   assert.equal(apply({ type: 'usage', scope: 'response', final: false, contextTokens: 1200 }), true);
-  for (const event of [{ type: 'permission', id: 'p1', toolName: 'Bash', input: {} }, { type: 'task', id: 'task-1', status: 'running' },
-    { type: 'error', message: '失败' }, { type: 'done' }, { type: 'session', sessionId: 'x' }, { type: 'quota' }]) {
+  assert.equal(apply({ type: 'task', id: 'task-1', status: 'running', description: '子任务' }), true);
+  assert.equal(apply({ type: 'task', id: 'task-1', status: 'completed', summary: '完成' }), true);
+  for (const event of [{ type: 'permission', id: 'p1', toolName: 'Bash', input: {} }, { type: 'error', message: '失败' }, { type: 'done' },
+    { type: 'rate_limit', status: 'rejected', rateLimited: true, limitType: 'five_hour' }]) {
     assert.equal(apply(event), false, event.type);
   }
   feed.flush(session.id);
@@ -117,6 +119,24 @@ test('tools and usage are patched, while status, permission and task changes nee
   const tool = tools.get('toolu_1');
   assert.equal(tool.status, 'completed'); assert.equal(tool.output.length, 4000); assert.equal(tool.outputTruncated, true);
   assert.equal(metrics.contextTokens, 1200);
+  const tasks = frames[0].ops.filter(op => op.op === 'task');
+  assert.equal(tasks.length, 1, 'only the newest task record is sent');
+  assert.deepEqual({ ...tasks[0].task, createdAt: undefined }, { id: 'task-1', type: 'task', status: 'completed', description: '子任务', summary: '完成', createdAt: undefined });
+});
+
+test('events that change nothing on the page neither patch nor ask for a snapshot', () => {
+  const { frames, feed, session, apply } = harness();
+  for (const event of [{ type: 'session', sessionId: 'x' }, { type: 'quota', source: 'official-cli-usage' },
+    { type: 'rate_limit', status: 'allowed', rateLimited: false }, { type: 'rate_limit', status: 'allowed_warning', rateLimited: false }]) {
+    assert.equal(apply(event), true, `${event.type} ${event.status || ''}`);
+  }
+  assert.equal(session.limitHit, undefined);
+  const capabilities = { type: 'capabilities', commands: [{ name: 'compact' }], models: [{ value: 'opus' }], agents: [], version: '2.1.300' };
+  assert.equal(apply(capabilities), false, 'the first capabilities of a session need a snapshot');
+  assert.equal(apply({ ...capabilities }), true, 'the same capabilities on the next turn need nothing');
+  assert.equal(apply({ ...capabilities, version: '2.1.301' }), false, 'changed capabilities need a snapshot');
+  feed.flush(session.id);
+  assert.equal(frames.length, 0);
 });
 
 test('a snapshot flushes pending patches first and reports the sequence it already contains', async () => {
@@ -152,6 +172,8 @@ test('compaction keeps creation order and the newest copy of each full record', 
     { op: 'tool', tool: { id: 't', status: 'running' } },
     { op: 'tool', tool: { id: 't', status: 'completed' } },
     { op: 'metrics', metrics: { turns: 2 } },
+    { op: 'task', task: { id: 'k', status: 'running' } },
+    { op: 'task', task: { id: 'k', status: 'completed' } },
   ]);
   assert.deepEqual(ops, [
     { op: 'message', id: 'a', meta: { role: 'assistant', thinkingTokens: 5 } },
@@ -160,5 +182,6 @@ test('compaction keeps creation order and the newest copy of each full record', 
     { op: 'append', id: 'a', field: 'text', value: 'w' },
     { op: 'metrics', metrics: { turns: 2 } },
     { op: 'tool', tool: { id: 't', status: 'completed' } },
+    { op: 'task', task: { id: 'k', status: 'completed' } },
   ]);
 });

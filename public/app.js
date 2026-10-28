@@ -44,11 +44,11 @@ const assistantMark = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 
 $$('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); });
 
 const storage = { get(key) { try { return localStorage.getItem(key); } catch { return null; } }, set(key, value) { try { if (value) localStorage.setItem(key, value); else localStorage.removeItem(key); } catch {} } };
-const state = { csrf: '', sessions: [], session: null, activeId: null, system: null, account: null, execution: null, config: {}, archived: false, view: 'chat', source: null, connected: false, authenticated: false, busy: false, renameId: null, sessionRequest: 0, selectionVersion: 0, refreshPending: false, refreshTimer: null, lastBootstrap: 0, syncNeeded: false, draftLoaded: false, pendingSend: null, pendingSteer: null, steering: false };
+const state = { csrf: '', sessions: [], session: null, activeId: null, system: null, account: null, execution: null, config: {}, archived: false, view: 'chat', source: null, connected: false, authenticated: false, busy: false, renameId: null, sessionRequest: 0, selectionVersion: 0, refreshPending: false, refreshTimer: null, lastBootstrap: 0, syncNeeded: false, draftLoaded: false, pendingSend: null, pendingSteer: null, steering: false, sending: 0, syncMark: null };
 const ide = { usage: null, workspaceOpen: false, directory: '', explorer: 'files', entries: [], documents: new Map(), activeDocument: null, editor: null, monacoLoading: null, syncingEditor: false, preview: false, fileRequest: 0, attachments: new Map(), pathAction: null, terminal: null, terminalSource: null, xterm: null, fit: null, terminalKind: 'shell', inputBuffer: '', inputTimer: null, inputPending: false, terminalStarting: false, commandIndex: 0, commands: [], slashIndex: 0 };
 // View state that survives live re-renders: keyed transcript rows, streaming reveal and scroll-follow state,
 // expanded activities/steps, loaded full tool records, sync timers.
-const ui = { renderedFor: null, items: new Map(), pending: new Set(), reveal: new Map(), fresh: new Set(), patchLog: [], entryGroups: new Map(), stuck: true, pointerDown: false, touching: false, autoScrollTop: null, lastScrollTop: 0, skew: 0, lastProgressAt: 0, raf: 0, lastFrameAt: 0, renderPending: false, resyncTimer: null, monitorTimer: null, openGroups: new Set(), openSteps: new Set(), openThinking: new Set(), closedThinking: new Set(), fullTools: new Map(), loadingTools: new Set(), unseen: false, activeDocBySession: new Map(), usageKey: '', usageCollapsed: storage.get('cloud-ops-workbench-usage-collapsed') === '1', notify: storage.get('cloud-ops-workbench-notify') === '1', attention: null, favicon: '', syncTimer: null, syncPaths: null, syncAll: false, todoOpen: false, noticesHTML: '', effortHTML: '', sessionsHTML: '' };
+const ui = { renderedFor: null, outgoing: null, items: new Map(), pending: new Set(), reveal: new Map(), fresh: new Set(), patchLog: [], entryGroups: new Map(), stuck: true, pointerDown: false, touching: false, autoScrollTop: null, lastScrollTop: 0, skew: 0, lastProgressAt: 0, raf: 0, lastFrameAt: 0, renderPending: false, resyncTimer: null, monitorTimer: null, openGroups: new Set(), openSteps: new Set(), openThinking: new Set(), closedThinking: new Set(), fullTools: new Map(), loadingTools: new Set(), unseen: false, activeDocBySession: new Map(), usageKey: '', usageCollapsed: storage.get('cloud-ops-workbench-usage-collapsed') === '1', notify: storage.get('cloud-ops-workbench-notify') === '1', attention: null, favicon: '', syncTimer: null, syncPaths: null, syncAll: false, todoOpen: false, noticesHTML: '', effortHTML: '', sessionsHTML: '' };
 // Steps live in the activity panel by default; the transcript keeps one summary row per stretch of work.
 Object.assign(ui, { stepsInline: storage.get('cloud-ops-workbench-steps') === 'inline', activityPref: storage.get('cloud-ops-workbench-activity'), activityOpen: false, activitySuspended: false, activityTab: 'steps', activityFor: null, activityItems: new Map(), activityStuck: true, activityTimer: 0, openTurns: new Set(), closedTurns: new Set(), openFiles: new Set(), panelThinking: new Set() });
 const nf = new Intl.NumberFormat('zh-CN');
@@ -170,7 +170,7 @@ function connectEvents() {
     if (data.type === 'usage') { ide.usage = data.usage; renderUsage(); renderNotices(); plugins.usage(); }
     if (data.type === 'models' && Array.isArray(data.models)) { state.config.models = data.models; configureEffort(); }
     if (data.type === 'terminal-updated' || data.type === 'terminal' || data.type === 'terminals') refreshTerminals().catch(() => {});
-    if (data.type === 'session-updated') { if (data.summary) applySummary(data.summary); scheduleSnapshot(data.sessionId, Boolean(data.summary)); }
+    if (data.type === 'session-updated') { if (data.summary) applySummary(data.summary); if (data.sessionId === state.activeId) state.syncMark = Number.isInteger(data.rev) ? { id: data.sessionId, epoch: data.epoch, rev: data.rev } : null; scheduleSnapshot(data.sessionId, Boolean(data.summary)); }
   };
 }
 // List summaries arrive with every update, so status badges and cross-session notices stay live without refetching.
@@ -181,14 +181,20 @@ function applySummary(summary) {
   noteTransition(summary.id, previous?.status, summary.status, summary.title); noteActivity(summary.id, previous?.status, summary.status); plugins.session(summary);
   renderSessions(); updateControls();
 }
+// Every change the server announces carries a revision, and every snapshot the revision it contains:
+// a change that came back with this page's own request (send, steer, stop…) needs no second download.
+const snapshotCovers = (session, mark) => Boolean(mark && session?.id === mark.id && session.live?.epoch === mark.epoch && session.live.rev >= mark.rev);
 function scheduleSnapshot(id, summarized = false) {
   if (!state.authenticated) return;
   if (id === state.activeId) state.syncNeeded = true;
   else if (summarized && Date.now() - state.lastBootstrap < 60000) return;
   if (state.refreshTimer || state.refreshPending) return;
   state.refreshTimer = setTimeout(async () => {
-    state.refreshTimer = null; state.refreshPending = true;
-    const sync = state.syncNeeded; state.syncNeeded = false;
+    state.refreshTimer = null;
+    // A send for this session is still waiting for its answer, which usually brings the change: decide once it lands.
+    if (state.syncNeeded && state.sending) return;
+    state.refreshPending = true;
+    const sync = state.syncNeeded && !snapshotCovers(state.session, state.syncMark); state.syncNeeded = false;
     try {
       if (sync && state.activeId) await refreshSession();
       if (!summarized && (Date.now() - state.lastBootstrap > 2500 || !running(state.session))) await refreshBootstrap();
@@ -546,9 +552,19 @@ function chatItems(session) {
   const runningTasks = live && ui.stepsInline ? (session.tasks || []).filter(t => t.status === 'running') : [];
   if (runningTasks.length) items.push({ kind: 'tasks', key: 'tasks', tasks: runningTasks });
   if (permissions.length) items.push({ kind: 'permissions', key: 'permissions', permissions });
+  // A message on its way shows at once; the server's copy takes over its row when the request answers.
+  const outgoing = outgoingFor(session);
+  if (outgoing) { items.push({ kind: 'user', key: 'm:outgoing', m: outgoing.m }, { kind: 'head', key: 'h:outgoing', at: null, live: true }, { kind: 'working', key: 'working', label: '正在发送…' }); return items; }
   const error = session?.lastError || session?.error;
   if (error) items.push({ kind: 'error', key: 'error', error: typeof error === 'string' ? error : error.message || jsonText(error) });
   return items;
+}
+// Sends start only from an idle session, so a running one whose latest message is this text already has the server's copy.
+const outgoingFor = session => ui.outgoing && ui.outgoing.sessionId === (session?.id ?? null) && !(running(session) && session.messages?.findLast(turnStart)?.text === ui.outgoing.m.text) ? ui.outgoing : null;
+function settleOutgoing(session) {
+  const m = session?.messages?.findLast(turnStart);
+  if (m) for (const [from, to] of [['m:outgoing', `m:${m.id}`], ['h:outgoing', `h:${m.id}`]]) { const el = $(`#messages > [data-key="${from}"]`); if (el && !$(`#messages > [data-key="${CSS.escape(to)}"]`)) el.dataset.key = to; }
+  ui.outgoing = null;
 }
 // The model that answered a turn, flagged when it is not the one that was asked for (no access, overload fallback).
 function turnModelMarkup(item) {
@@ -737,12 +753,12 @@ function renderMessages() {
   const messages = Array.isArray(session?.messages) ? session.messages : [], tools = Array.isArray(session?.tools) ? session.tools : [];
   $('#message-count').textContent = (session?.history?.turns || 0) + (session?.history?.replies || 0) + messages.filter(m => m.role === 'user' || (m.role === 'assistant' && (m.text || '').trim())).length;
   ui.renderPending = false;
-  if (!session || (!messages.length && !tools.length && !(session.permissions || []).length)) {
+  if (!outgoingFor(session) && (!session || (!messages.length && !tools.length && !(session.permissions || []).length))) {
     if (!container.querySelector(':scope > #welcome')) container.innerHTML = welcomeHTML;
     ui.renderedFor = null; ui.items = new Map(); ui.pending.clear(); updateScrollButton(); scheduleActivity(); return false;
   }
-  const first = ui.renderedFor !== session.id;
-  if (first) { container.replaceChildren(); ui.renderedFor = session.id; ui.unseen = false; }
+  const first = ui.renderedFor !== (session?.id ?? 'new');
+  if (first) { container.replaceChildren(); ui.renderedFor = session?.id ?? 'new'; ui.unseen = false; }
   $$(':scope > :not([data-key])', container).forEach(el => el.remove());
   const existing = new Map($$(':scope > [data-key]', container).map(el => [el.dataset.key, el]));
   const items = chatItems(session), appeared = []; let added = false, busy = false;
@@ -842,7 +858,11 @@ function applyPatch(session, frame) {
     } else if (op.op === 'tool' && op.tool?.id) {
       const index = tools.findIndex(t => t.id === op.tool.id); if (index < 0) tools.push(op.tool); else tools[index] = op.tool;
       ui.fullTools.delete(op.tool.id); changed.tools = true; if (op.tool.name === 'TodoWrite') changed.todos = true;
+    } else if (op.op === 'task' && op.task?.id) {
+      const tasks = session.tasks ||= [], index = tasks.findIndex(t => t.id === op.task.id);
+      if (index < 0) { tasks.push(op.task); if (tasks.length > 100) tasks.splice(0, tasks.length - 100); } else tasks[index] = op.task;
     } else if (op.op === 'metrics') { session.metrics = op.metrics; changed.metrics = true; }
+    else return null;
   }
   session.live = { ...session.live, seq: frame.seq, now: frame.now }; session.updatedAt = frame.now;
   return changed;
@@ -1782,35 +1802,46 @@ async function sendSteer() {
   if (!text || !id || state.busy || state.steering) return;
   if (/^\/[^\s]+$/.test(text)) { const command = commandsList().find(c => c.slash === text); if (command) { $('#message-input').value = ''; preserveDraft(); resizeInput(); updateControls(); await executeCommand(command); return; } }
   const attachments = ide.attachments.get(id) || []; if (attachments.length) text += `\n\n引用当前工作区文件：\n${attachments.map(file => `- @${file.path}`).join('\n')}`;
-  state.steering = true; updateControls();
+  state.steering = true; state.sending++; updateControls();
   try {
     if (!state.pendingSteer || state.pendingSteer.sessionId !== id || state.pendingSteer.text !== text) state.pendingSteer = { sessionId: id, text, requestId: crypto.randomUUID() };
     const result = await api(`/api/sessions/${encodeURIComponent(id)}/steer`, { method: 'POST', body: { text, requestId: state.pendingSteer.requestId } });
     state.pendingSteer = null;
     if (id === state.activeId) { $('#message-input').value = ''; ide.attachments.delete(id); renderAttachments(); preserveDraft(); resizeInput(); ui.stuck = true; acceptSession(result); stickToBottom(); }
   } catch (error) { toast(error.message, true); if (error.status === 409) await refreshSession().catch(() => {}); }
-  finally { state.steering = false; updateControls(); }
+  finally { state.steering = false; sendSettled(); updateControls(); }
 }
+function sendSettled() { state.sending--; if (!state.sending && state.syncNeeded) scheduleSnapshot(state.activeId, true); }
 $('#composer').addEventListener('submit', async event => {
   event.preventDefault(); if (running(state.session)) { await sendSteer(); return; }
   let text = $('#message-input').value.trim(); if (!text || terminalHere() || state.busy || state.accountSwitchPending) return;
   if (!accountReady()) { toast('请先登录 Claude 账号后再开始对话。', true); return; }
   if (/^\/[^\s]+$/.test(text)) { const command = commandsList().find(c => c.slash === text); if (command) { $('#message-input').value = ''; preserveDraft(); resizeInput(); updateControls(); await executeCommand(command); return; } }
   const attachments = ide.attachments.get(state.activeId) || []; if (attachments.length) text += `\n\n引用当前工作区文件：\n${attachments.map(file => `- @${file.path}`).join('\n')}`;
-  state.busy = true; updateControls(); let id = state.activeId;
+  state.busy = true; state.sending++; let id = state.activeId;
+  // The message shows in the transcript right away and the input clears; the saved draft stays until the
+  // server has it, and a failed send puts the text back.
+  const input = $('#message-input'), typed = input.value;
+  ui.outgoing = { sessionId: id, m: { id: 'outgoing', role: 'user', text, createdAt: new Date(serverNow()).toISOString() } };
+  input.value = ''; resizeInput(); ui.stuck = true; renderMessages(); updateControls();
   try {
     if (!id) {
       const created = await api('/api/sessions', { method: 'POST', body: { model: $('#model-select').value, permissionMode: $('#mode-select').value, effort: $('#effort-select').value } });
-      id = created.id; plugins.commitDraft(id); state.selectionVersion++; state.activeId = id; storage.set('cloud-ops-workbench-active', id); storage.set('cloud-ops-workbench-draft:new', ''); storage.set(activeDraftKey(), text); acceptSession(created);
+      id = created.id; ui.outgoing.sessionId = id; plugins.commitDraft(id); state.selectionVersion++; state.activeId = id; storage.set('cloud-ops-workbench-active', id); storage.set('cloud-ops-workbench-draft:new', ''); storage.set(activeDraftKey(), typed); acceptSession(created);
     }
     if (!state.pendingSend || state.pendingSend.sessionId !== id || state.pendingSend.text !== text) state.pendingSend = { sessionId: id, text, requestId: crypto.randomUUID() };
     const choices = plugins.choices(id);
     const result = await api(`/api/sessions/${encodeURIComponent(id)}/messages`, { method: 'POST', body: { text, requestId: state.pendingSend.requestId, ...(choices ? { choices } : {}) } });
     state.pendingSend = null; plugins.choicesSent(id);
-    if (id === state.activeId) { $('#message-input').value = ''; ide.attachments.delete(id); renderAttachments(); preserveDraft(); resizeInput(); ui.stuck = true; acceptSession(result); stickToBottom(); }
-    await refreshBootstrap();
-  } catch (error) { toast(error.message, true); }
-  finally { state.busy = false; updateControls(); }
+    if (id === state.activeId) { settleOutgoing(result); ide.attachments.delete(id); renderAttachments(); preserveDraft(); ui.stuck = true; acceptSession(result); stickToBottom(); }
+    else ui.outgoing = null;
+    refreshBootstrap().catch(() => {});
+  } catch (error) {
+    toast(error.message, true); ui.outgoing = null;
+    if ((state.activeId ?? null) === id) { const draft = input.value.trim(); input.value = draft ? `${typed}\n\n${draft}` : typed; resizeInput(); preserveDraft(); renderMessages(); }
+    else { const key = `cloud-ops-workbench-draft:${id || 'new'}`, saved = storage.get(key)?.trim(); storage.set(key, saved ? `${typed}\n\n${saved}` : typed); }
+  }
+  finally { state.busy = false; sendSettled(); updateControls(); }
 });
 $('#stop-button').addEventListener('click', async () => { if (!state.activeId || state.busy) return; const id = state.activeId; state.busy = true; updateControls(); try { const result = await api(`/api/sessions/${encodeURIComponent(id)}/stop`, { method: 'POST', body: {} }); if (id === state.activeId) acceptSession(result); toast('已发送停止请求。'); } catch (error) { toast(error.message, true); } finally { state.busy = false; updateControls(); } });
 for (const [selector, key] of [['#model-select', 'model'], ['#mode-select', 'permissionMode'], ['#effort-select', 'effort']]) $(selector).addEventListener('change', async event => {

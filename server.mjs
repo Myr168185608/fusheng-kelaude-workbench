@@ -59,10 +59,14 @@ export async function createWorkbench(options={}){
  const send=(res,status,error)=>res.status(status).json({error});
  function event(data,to){const wire=`data: ${JSON.stringify(data)}\n\n`;for(const c of clients){if(c.channel==='terminal'||(to&&(to==='patches')!==Boolean(c.patches)))continue;if(!auth.sessions.has(c.key)||c.expires<Date.now()){c.res.end();clients.delete(c);continue;}if(c.res.writableLength>1024*1024){c.res.destroy();clients.delete(c);}else c.res.write(wire);}}
  const feed=new LiveFeed({broadcast:data=>event(data,'patches')});
- // Responses that the browser adopts as its transcript state carry the live patch position.
- const sessionView=s=>({...publicSession(s),live:feed.info(s.id)});
+ // Every notify() marks a change the browser learns from a snapshot. Snapshots report the revision they
+ // already contain, so a page skips the refetch for a change its own request's answer already carried.
+ const revs=new Map(),liveInfo=id=>({...feed.info(id),rev:revs.get(id)||0});
+ // Responses that the browser adopts as its transcript state carry the live patch position. They use the
+ // same trimmed view as a ?view=live refetch: no audit log, long tool text clipped (full via the tools route).
+ const sessionView=s=>({...liveSession(s),live:liveInfo(s.id)});
  // Carry the list summary so other tabs can update status badges without a refetch.
- function notify(id,immediate=false){const fire=()=>{const s=store.get(id);event({type:'session-updated',sessionId:id,...(s?{summary:summary(s)}:{})});};if(immediate){clearTimeout(notices.get(id));notices.delete(id);fire();return;}if(!notices.has(id))notices.set(id,setTimeout(()=>{notices.delete(id);fire();},350));}
+ function notify(id,immediate=false){revs.set(id,(revs.get(id)||0)+1);const fire=()=>{const s=store.get(id);event({type:'session-updated',sessionId:id,epoch:feed.epoch,rev:revs.get(id),...(s?{summary:summary(s)}:{})});};if(immediate){clearTimeout(notices.get(id));notices.delete(id);fire();return;}if(!notices.has(id))notices.set(id,setTimeout(()=>{notices.delete(id);fire();},350));}
  // Pages loaded before live patches existed (no ?patches=1) learn about streamed changes by refetching.
  function legacyNotify(id){if(legacyNotices.has(id)||![...clients].some(c=>c.channel!=='terminal'&&!c.patches))return;legacyNotices.set(id,setTimeout(()=>{legacyNotices.delete(id);const s=store.get(id);event({type:'session-updated',sessionId:id,...(s?{summary:summary(s)}:{})},'legacy');},350));}
  app.get('/healthz',(req,res)=>res.json({ok:true}));
@@ -71,7 +75,8 @@ export async function createWorkbench(options={}){
  app.use('/api',(req,res,next)=>{req.login=auth.get(req);if(!req.login)return send(res,401,'登录已失效，请重新登录。');if(!['GET','HEAD'].includes(req.method)&&req.headers['x-csrf-token']!==req.login.csrfToken)return send(res,403,'操作凭据已失效，请刷新页面。');next();});
  app.post('/api/logout',async(req,res)=>{await auth.logout(req.login);for(const c of clients)if(c.key===req.login.key){c.res.end();clients.delete(c);}res.setHeader('Set-Cookie',auth.cookie('',0));res.status(204).end();});
  app.get('/api/bootstrap',async(req,res)=>{
-  const [system,account]=await Promise.all([monitor.sample(runs.size+(terminals.active?1:0)),monitor.auth()]);
+  // A login confirmed recently answers at once; the CLI check refreshes it in the background for the next request.
+  const [system,account]=await Promise.all([monitor.sample(runs.size+(terminals.active?1:0)),monitor.auth({wait:false})]);
   const execution=await serverPlugins.executionStatus(account);
   void usage.refresh().catch(()=>{});
   res.json({execution,user:req.login.user,csrfToken:req.login.csrfToken,sessions:store.list(),system,account,usage:usage.read(),terminals:terminals.list(),config:{version,release,models:catalog.list(),effortLevels,workspaceRoot,rootOperations:process.env.WORKBENCH_ROOT_OPERATIONS==='1',maxConcurrentRuns:maxRuns,maxMessageLength:30000,usageSource:'official-cli',costBasis:'API 等价估算，非 Pro 账单',privateWorkspace:true,plugins:{safeMode:plugins.safeMode,workshop:Boolean(plugins.workshopUrl),sdkVersion:1}}});
@@ -84,7 +89,7 @@ export async function createWorkbench(options={}){
  app.post('/api/sessions',async(req,res)=>{if(store.sessions.size>=500)return send(res,409,'已达到 500 个会话，请先导出和整理历史。');const {title,model='sonnet',permissionMode='bypassPermissions',effort='auto'}=req.body||{};if(!isModel(model)||!effortLevels.includes(effort)||!['bypassPermissions','default','plan'].includes(permissionMode))return send(res,400,'模型或权限模式不支持。');if(title!=null&&(typeof title!=='string'||title.length>100))return send(res,400,'标题过长。');const s=newSession({title:title?.trim()||'新的对话',model,permissionMode,effort});await fs.mkdir(path.join(workspaceRoot,s.id),{mode:0o700});await store.save(s);notify(s.id,true);res.status(201).json(sessionView(s));});
  app.use('/api/sessions/:id',(req,res,next)=>{req.session=store.get(req.params.id);if(!req.session)return send(res,404,'会话不存在。');next();});
  registerIDE(app,{store,workspaceRoot,terminals,runs,mutations,send,auth,clients,event,isClosing:()=>shuttingDown,isLocked:locked,prepareTerminal:async(session,cwd,kind)=>kind==='claude'?serverPlugins.prepare({session,cwd,request:{source:'terminal'},run:{messageId:randomUUID()},kind:'terminal'}):{}});
- app.get('/api/sessions/:id',(req,res)=>res.json(req.query.view==='live'?{...liveSession(req.session),live:feed.info(req.session.id)}:sessionView(req.session)));
+ app.get('/api/sessions/:id',(req,res)=>res.json(req.query.view==='live'?sessionView(req.session):{...publicSession(req.session),live:liveInfo(req.session.id)}));
  app.get('/api/sessions/:id/tools/:toolId',(req,res)=>{const tool=req.session.tools?.find(t=>t.id===req.params.toolId);if(!tool)return send(res,404,'工具记录不存在。');res.json(tool);});
  app.patch('/api/sessions/:id',async(req,res)=>{
  const s=req.session,b=req.body||{};
@@ -130,7 +135,7 @@ export async function createWorkbench(options={}){
    await store.trimHistory(s).catch(()=>console.error('Session history trim failed'));
    const cwd=path.join(workspaceRoot,s.id);
    const extensionOptions=await serverPlugins.prepare({session:s,cwd,request:{...request,text},run});
-   if(!extensionOptions.configDir){const account=await monitor.auth().catch(()=>null);if(account&&account.loggedIn===false)throw new PluginError(409,'Claude Code 尚未登录。请先在服务器完成官方登录，再发送任务。');}
+   if(!extensionOptions.configDir){const account=await monitor.auth({wait:false}).catch(()=>null);if(account&&account.loggedIn===false)throw new PluginError(409,'Claude Code 尚未登录。请先在服务器完成官方登录，再发送任务。');}
    if(run.cancelRequested||shuttingDown)throw new PluginError(409,'任务启动已取消。');
    staged=structuredClone({status:s.status,lastError:s.lastError,limitHit:s.limitHit,permissions:s.permissions,metrics:s.metrics,messages:s.messages,title:s.title,_requestIds:s._requestIds});
    s.status='running';s.lastError=null;s.limitHit=null;s.permissions=[];s.metrics.turns++;s.metrics.userMessages++;
