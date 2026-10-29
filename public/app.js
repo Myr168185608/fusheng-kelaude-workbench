@@ -206,8 +206,11 @@ function scheduleSnapshot(id, summarized = false) {
 async function refreshSession() {
   const id = state.activeId; if (!id) return;
   const selection = state.selectionVersion; const request = ++state.sessionRequest;
-  const session = await api(`/api/sessions/${encodeURIComponent(id)}?view=live`);
-  if (id !== state.activeId || selection !== state.selectionVersion || request !== state.sessionRequest) return;
+  const session = await api(`/api/sessions/${encodeURIComponent(id)}?view=live`, { signal: AbortSignal.timeout(30000) });
+  if (id !== state.activeId || selection !== state.selectionVersion) return;
+  // A newer request supersedes this answer once the conversation is on screen. Before that the answer is
+  // shown anyway: the newer request may still fail, and the page must not keep waiting for it.
+  if (request !== state.sessionRequest && state.session?.id === id) return;
   acceptSession(session);
 }
 function acceptSession(session) {
@@ -240,17 +243,25 @@ function newSessionView() {
   $('#message-input').focus();
 }
 async function selectSession(id) {
-  if (id === state.activeId) { closeSidebar(); return; }
-  preserveDraft(); state.selectionVersion++; state.activeId = id; state.session = null; ui.renderedFor = null; resetLive();
-  if (ui.attention?.id === id) { ui.attention = null; }
-  syncAccountSelection(); renderUsage(); storage.set('cloud-ops-workbench-active', id); loadDraft(); renderSessions(); closeSidebar();
-  const remembered = ui.activeDocBySession.get(id);
-  ide.directory = ''; ide.activeDocument = remembered && ide.documents.has(remembered) ? remembered : null; renderEditor(); renderAttachments(); renderTodos();
-  $('#current-title').textContent = state.sessions.find(s => s.id === id)?.title || '正在载入'; renderTitleMeta();
+  if (id === state.activeId && state.session) { closeSidebar(); return; }
+  // Clicking the conversation that is still loading, or failed to load, asks for it again.
+  if (id !== state.activeId) {
+    preserveDraft(); state.selectionVersion++; state.activeId = id; state.session = null; ui.renderedFor = null; resetLive();
+    if (ui.attention?.id === id) { ui.attention = null; }
+    syncAccountSelection(); renderUsage(); storage.set('cloud-ops-workbench-active', id); loadDraft(); renderSessions();
+    const remembered = ui.activeDocBySession.get(id);
+    ide.directory = ''; ide.activeDocument = remembered && ide.documents.has(remembered) ? remembered : null; renderEditor(); renderAttachments(); renderTodos();
+    $('#current-title').textContent = state.sessions.find(s => s.id === id)?.title || '正在载入'; renderTitleMeta();
+  }
+  closeSidebar();
   $('#messages').innerHTML = '<div class="empty-card loading-card"><span class="working-pulse"></span><p>正在恢复这段对话</p></div>';
   renderActivity(); updateControls();
   try { await refreshSession(); ui.stuck = true; stickToBottom(); if (ide.workspaceOpen) await loadDirectory(); }
-  catch (error) { if (id === state.activeId) { $('#messages').innerHTML = `<div class="empty-card"><strong>暂时无法载入会话</strong><p>${escape(error.message)}</p></div>`; toast(error.message, true); } }
+  catch (error) {
+    if (id !== state.activeId || state.session) return;
+    const message = error.name === 'TimeoutError' ? '服务器 30 秒内没有返回这段对话，请检查网络后点一下左侧的会话重试。' : error.message;
+    $('#messages').innerHTML = `<div class="empty-card"><strong>暂时无法载入会话</strong><p>${escape(message)}</p></div>`; toast(message, true);
+  }
 }
 const statusText = { running: '运行中', awaiting_approval: '待确认', stopping: '正在停止', error: '出错' };
 function renderSessions() {

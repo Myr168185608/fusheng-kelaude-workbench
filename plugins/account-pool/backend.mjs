@@ -1,7 +1,8 @@
 // Adapter to the generic workbench lifecycle; all routing policy lives beside this file.
 import {createAccountPool, PRIMARY_ACCOUNT_ID} from './server.mjs';
 export async function activate(context) {
-  const pool=await createAccountPool(context);
+  // Automatic account switches and continuations reach open pages as a runtime change.
+  const pool=await createAccountPool({...context,onNotes:()=>context.runtimeChanged?.()});
   return {
     managesExecutionContext:true,
     async call(method,params) {

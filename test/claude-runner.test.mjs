@@ -102,6 +102,24 @@ else {
    if(mode==='unknown-control') { write({type:'control_request',request_id:'unknown-1',request:{subtype:'unknown_operation'}}); return; }
    if(mode==='error') { finish(true); process.exitCode=1; return; }
    if(mode==='linger') { finish(); return; }
+   if(mode==='quota-bg'||mode==='error-bg') {
+    // A dev server started in the background, then the reply fails: recorded from the real CLI for a
+    // 5-hour limit (rejection, assistant error frame, error result), and an ordinary failed request.
+    write({type:'system',subtype:'task_started',task_id:'dev-server',task_type:'local_bash',description:'npm run dev'});
+    if(mode==='quota-bg') {
+     write({type:'rate_limit_event',rate_limit_info:{status:'rejected',rateLimitType:'five_hour',resetsAt:1793341800,utilization:1}});
+     write({type:'assistant',uuid:'limit-text',session_id:session,error:'rate_limit',message:{id:'message-limit',content:[{type:'text',text:"You've hit your session limit · resets 3:30am"}]}});
+     write({type:'result',uuid:'result-limit',session_id:session,subtype:'success',is_error:true,result:"You've hit your session limit · resets 3:30am"});
+    } else {
+     finish(true);
+     // The background task still reports back and wakes the model for a follow-up turn.
+     setTimeout(()=>{
+      write({type:'system',subtype:'task_notification',task_id:'dev-server',status:'completed'});
+      write({type:'result',uuid:'result-2',session_id:session,subtype:'success',is_error:false,result:'后台完成'});
+     },300);
+    }
+    return;
+   }
    if(mode==='bg-bash') {
     write({type:'system',subtype:'task_started',task_id:'bg-1',task_type:'local_bash',description:'后台命令'});
     finish();
@@ -220,6 +238,8 @@ else {
  });
  rl.on('close',()=>{
   if(mode==='linger') { process.on('SIGTERM',()=>process.exit(143)); setInterval(()=>{},1000); return; }
+  // Like the real CLI, a running background task keeps the process alive after input ends.
+  if(mode==='quota-bg') { writeFileSync(process.env.FIXTURE_RECORD,JSON.stringify({inputEnded:true})); process.on('SIGTERM',()=>process.exit(143)); setInterval(()=>{},1000); return; }
   if(mode==='steer-late') { writeFileSync(process.env.FIXTURE_RECORD,JSON.stringify({eofAfterSteer:turnDone})); }
   if(mode==='orphan-resume'||mode==='bg-states'||mode==='steer-late') {
    if(mode!=='steer-late') writeFileSync(process.env.FIXTURE_RESPONSE,JSON.stringify({eofAfterTurn:turnDone}));
@@ -618,6 +638,28 @@ test('background Bash keeps the CLI alive until it reports back after the first 
   assert.equal(exit.code, 0);
   assert.equal(exit.result.result, '后台完成');
   assert.equal(events.some(event => event.type === 'error'), false);
+});
+
+test('a turn that ran out of quota ends although a background task still runs, and says so', async t => {
+  const { run, events, cwd } = await setup(t, 'quota-bg');
+  const exit = await run.done;
+  assert.equal(exit.limitReached, true);
+  assert.equal(exit.stopped, false);
+  assert.equal(exit.code, 143);
+  assert.deepEqual(JSON.parse(await readFile(join(cwd, 'record.json'), 'utf8')), { inputEnded: true });
+  assert(events.some(event => event.type === 'rate_limit' && event.rateLimited));
+  assert.deepEqual(events.filter(event => event.type === 'error').map(event => event.message),
+    ["Claude Code: rate_limit — You've hit your session limit · resets 3:30am", "You've hit your session limit · resets 3:30am"]);
+  assert.equal(events.at(-1).type, 'done');
+});
+
+test('another failed reply still waits for its background task, which can wake the model again', async t => {
+  const { run, events } = await setup(t, 'error-bg');
+  const exit = await run.done;
+  assert.equal(exit.limitReached, undefined);
+  assert.equal(exit.code, 0);
+  assert.equal(exit.result.result, '后台完成');
+  assert(events.some(event => event.type === 'error'));
 });
 
 test('guidance sent while a tool runs reaches the CLI as a user message and reports when Claude takes it', async t => {

@@ -385,6 +385,20 @@ test('timeout and CLI errors remain errors after the stop/exit sequence', async 
   assert.equal(f.wb.runs.size, 0);
 });
 
+test('an error while the process still runs keeps the turn running and stoppable until it exits', async t => {
+  const f = await fixture(t); await f.login(); const s = await f.create();
+  await f.request(`/api/sessions/${s.id}/messages`, { method: 'POST', body: { text: '额度用尽的任务' } });
+  f.fake.calls[0].emit({ type: 'error', message: "Claude Code: rate_limit — You've hit your session limit" });
+  let current = (await f.request(`/api/sessions/${s.id}?view=live`)).body;
+  // The page shows the error and keeps Stop: sending again would be refused while the process lives.
+  assert.equal(current.status, 'running'); assert.match(current.lastError, /session limit/); assert(current.limitHit);
+  assert.equal((await f.request(`/api/sessions/${s.id}/messages`, { method: 'POST', body: { text: '再试' } })).status, 409);
+  await f.fake.calls[0].finish({ code: 143, signal: 'SIGTERM', stopped: false, limitReached: true });
+  current = (await f.request(`/api/sessions/${s.id}`)).body;
+  assert.equal(current.status, 'error'); assert.match(current.lastError, /session limit/);
+  assert.equal(f.wb.runs.size, 0);
+});
+
 test('a CLI the host ended after a successful result leaves the session idle, other non-zero exits do not', async t => {
   const f = await fixture(t); await f.login(); const s = await f.create();
   await f.request(`/api/sessions/${s.id}/messages`, { method: 'POST', body: { text: '普通任务' } });

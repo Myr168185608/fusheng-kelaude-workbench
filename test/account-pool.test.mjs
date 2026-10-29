@@ -52,7 +52,7 @@ test('optional account pool starts with the existing official profile and only p
   assert.equal(initial.accounts.length, 1);
   assert.equal(initial.accounts[0].id, 'primary');
   assert.equal(initial.accounts[0].auth.loggedIn, null);
-  assert.deepEqual(initial.settings, { strategy: 'sticky', switchAt: 100 });
+  assert.deepEqual(initial.settings, { strategy: 'sticky', switchAt: 100, autoContinue: true });
   const other = await f.create('另一个账号');
   assert.deepEqual(await fs.readdir(path.join(f.dataDir, 'profiles', other, 'config')), []);
   assert.equal((await f.pool.beforeRun({ session: session() })).configDir, undefined);
@@ -77,7 +77,7 @@ test('auth probes isolate each profile and strip credential and config overrides
     assert.equal(probe.env.HTTPS_PROXY, 'http://operator-proxy.invalid');
     for (const key of ['CLAUDE_SECURESTORAGE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'NODE_OPTIONS']) assert.equal(probe.env[key], undefined);
   }
-  assert.equal(f.lockCalls(), 2);
+  assert.equal(f.lockCalls(), 1, 'reading login state does not wait for other tasks; only creating the account did');
 });
 
 test('official auth status logged-out JSON is respected even when the CLI exits nonzero', async t => {
@@ -135,16 +135,38 @@ test('quota routing uses all blocking windows, skips cooldowns and keeps unknown
   assert.equal(limitName(null), '额度');
 });
 
-test('bindings are validated, pinned accounts never silently fail over, and unbinding restores policy', async t => {
+test('bindings are validated, a pinned account that cannot run hands its conversation to the strategy, and unbinding restores policy', async t => {
   const f = await fixture(t);
-  const other = await f.create('绑定账号');
+  const other = await f.create('绑定账号'), spare = await f.create('备用账号');
   await assert.rejects(f.pool.call('bind', { sessionId: randomUUID(), accountId: other }), /会话不存在/);
   await f.pool.call('bind', { sessionId: SESSION, accountId: other });
   assert.equal((await f.pool.beforeRun({ session: session(SESSION) })).accountId, other);
   assert.equal(f.pool.ownsSession(session(SESSION)), true);
+  assert.equal(f.pool.snapshot().notes[SESSION], undefined);
+  // Out of quota: the turn runs on the account the strategy picks (sticky: the default) and the pin is released.
   f.usage.set(other, { fiveHour: { utilization: 100 }, scopes: [] });
-  await assert.rejects(f.pool.beforeRun({ session: session(SESSION) }), /绑定的账号/);
+  assert.equal((await f.pool.beforeRun({ session: session(SESSION) })).accountId, 'primary');
+  assert.deepEqual(f.pool.sessionState(SESSION), { accountId: 'primary', transcriptAccountId: 'primary', pinned: false });
+  assert.deepEqual(f.pool.snapshot().notes[SESSION], { kind: 'released', from: other, to: 'primary', at: new Date(fixedNow).toISOString() });
+  // The next turn the user starts clears the note.
+  assert.equal((await f.pool.beforeRun({ session: session(SESSION) })).accountId, 'primary');
+  assert.equal(f.pool.snapshot().notes[SESSION], undefined);
+  // A pinned account that was disabled or logged out moves on as well; quota strategy picks the emptiest one.
+  await f.pool.call('settings', { strategy: 'quota' });
+  f.usage.delete(other); f.usage.set('primary', { fiveHour: { utilization: 60 }, scopes: [] }); f.usage.set(spare, { fiveHour: { utilization: 10 }, scopes: [] });
+  await f.pool.call('bind', { sessionId: SESSION, accountId: other });
+  await f.pool.call('update', { id: other, enabled: false });
+  assert.equal((await f.pool.beforeRun({ session: session(SESSION) })).accountId, spare);
+  await f.pool.call('update', { id: other, enabled: true });
+  await f.pool.call('bind', { sessionId: SESSION, accountId: other });
+  f.auth.set(other, { loggedIn: false }); await f.pool.call('refresh', { id: other });
+  assert.equal((await f.pool.beforeRun({ session: session(SESSION) })).accountId, spare);
+  assert.equal(f.pool.sessionState(SESSION).pinned, false);
+  // Nothing usable at all still refuses with a clear message.
+  for (const id of ['primary', spare]) f.usage.set(id, { fiveHour: { utilization: 100 }, scopes: [] });
+  await assert.rejects(f.pool.beforeRun({ session: session(SESSION) }), /没有已登录/);
   await f.pool.call('bind', { sessionId: SESSION, accountId: null });
+  f.usage.delete('primary');
   assert.equal((await f.pool.beforeRun({ session: session(SESSION) })).accountId, 'primary');
   assert.equal(f.pool.ownsSession(session(SESSION)), false);
 });
@@ -297,4 +319,116 @@ test('execution readiness uses auth TTL while idle and only cached state when th
   busy = false;
   assert.equal((await f.pool.executionStatus()).ready, false);
   assert.equal(f.probes.length, 2);
+});
+
+// The host side of a continuation: startTurn() routes through beforeRun() like a page's send would.
+async function continuationFixture(t, extra = {}) {
+  const current = { ...session(SESSION), claudeSessionId: null, status: 'error', archived: false, limitHit: { limitType: 'five_hour' },
+    messages: [{ role: 'user', text: '修复登录页' }, { role: 'assistant', text: '正在改' }, { role: 'user', text: '顺便加测试', steer: 'delivered' }] };
+  const starts = [], box = {};
+  const f = await fixture(t, { getSession: id => id === SESSION ? current : null, continueDelayMs: 5,
+    startTurn: async (target, text, request) => {
+      const refusal = box.refuse?.shift();
+      if (refusal) return refusal;
+      const selected = await box.pool.beforeRun({ session: target, request: { ...request, text } });
+      starts.push({ text, request, accountId: selected.accountId });
+      return { code: 202 };
+    }, ...extra });
+  box.pool = f.pool;
+  // One turn on whatever beforeRun picks, then an exit as the runner reports it.
+  const exit = async (result = { code: 143, signal: 'SIGTERM', limitReached: true }) => {
+    const count = starts.length;
+    f.pool.onExit({ session: current, run: { done: Promise.resolve() }, result });
+    for (let i = 0; i < 200 && starts.length === count && !['failed'].includes(f.pool.snapshot().notes[SESSION]?.kind) && f.pool.snapshot().notes[SESSION]; i++) await new Promise(resolve => setTimeout(resolve, 5));
+    await f.pool.operations;
+  };
+  return { ...f, current, starts, box, exit };
+}
+
+test('a turn that ran out of quota continues on the next account, each account once, with the original request', async t => {
+  const f = await continuationFixture(t);
+  const second = await f.create('第二账号'), third = await f.create('第三账号');
+  f.usage.set(second, { fiveHour: { utilization: 70 }, scopes: [] }); f.usage.set(third, { fiveHour: { utilization: 20 }, scopes: [] });
+  assert.equal((await f.pool.beforeRun({ session: f.current })).accountId, 'primary');
+  f.pool.onEvent({ session: f.current, event: { type: 'rate_limit', rateLimited: true, cooldownUntil: new Date(fixedNow + 3600_000).toISOString() } });
+  await f.exit();
+  assert.equal(f.starts.length, 1);
+  const [first] = f.starts;
+  assert.equal(first.accountId, third, 'the account with the most quota left takes over');
+  assert.equal(first.request.source, 'account-pool');
+  assert.deepEqual(first.request.handoff, { to: third, exclude: ['primary'] });
+  assert.match(first.text, /^上一轮因「默认账号」5 小时额度用尽中断，工作台已自动换到「第三账号」/);
+  assert.match(first.text, /原任务：\n修复登录页\n\n（任务进行中补充的引导）\n- 顺便加测试$/);
+  assert.equal(f.pool.snapshot().notes[SESSION].kind, 'continued');
+  assert.equal(f.pool.snapshot().notes[SESSION].to, third);
+  // The continuation runs out too: the next one goes to the last account it has not tried, and the request is not nested.
+  f.current.messages.push({ role: 'user', text: first.text });
+  f.pool.onEvent({ session: f.current, event: { type: 'rate_limit', rateLimited: true, cooldownUntil: new Date(fixedNow + 3600_000).toISOString() } });
+  await f.exit();
+  assert.equal(f.starts.length, 2);
+  assert.equal(f.starts[1].accountId, second);
+  assert.deepEqual(f.starts[1].request.handoff.exclude, ['primary', third]);
+  assert.match(f.starts[1].text, /^上一轮因「第三账号」/);
+  assert.equal(f.starts[1].text.match(/原任务：/g).length, 1);
+  // All three are out: no start, and the conversation says why.
+  f.pool.onEvent({ session: f.current, event: { type: 'rate_limit', rateLimited: true, cooldownUntil: new Date(fixedNow + 3600_000).toISOString() } });
+  await f.exit();
+  assert.equal(f.starts.length, 2);
+  assert.equal(f.pool.snapshot().notes[SESSION].kind, 'failed');
+  assert.match(f.pool.snapshot().notes[SESSION].message, /「第二账号」5 小时额度已用尽，其他账号也没有可用额度/);
+  // A turn the user starts later begins a new task, and clears the note.
+  f.usage.set(second, { fiveHour: { utilization: 5 }, scopes: [] });
+  await f.pool.beforeRun({ session: f.current });
+  assert.equal(f.pool.chains.size, 0);
+  assert.equal(f.pool.snapshot().notes[SESSION], undefined);
+});
+
+test('a continuation gives way to stops, restarts, the user and the setting, and retries a briefly refused start', async t => {
+  const f = await continuationFixture(t);
+  const second = await f.create('第二账号');
+  const turn = async () => { await f.pool.beforeRun({ session: f.current }); };
+  for (const result of [{ limitReached: true, stopped: true }, { limitReached: true, shutdown: true }, { limitReached: true, preflightFailed: true }, { code: 1 }]) {
+    await turn(); await f.exit(result);
+  }
+  assert.equal(f.starts.length, 0);
+  assert.equal(f.pool.snapshot().notes[SESSION], undefined);
+  // The user sent a message before the continuation could start: theirs runs, nothing else does.
+  await turn();
+  f.current.status = 'running';
+  await f.exit();
+  assert.equal(f.starts.length, 0);
+  assert.equal(f.pool.snapshot().notes[SESSION], undefined);
+  f.current.status = 'error';
+  // Switched off in the panel.
+  await f.pool.call('settings', { autoContinue: false });
+  await turn(); await f.exit();
+  assert.equal(f.starts.length, 0);
+  assert.equal(JSON.parse(await fs.readFile(path.join(f.dataDir, 'accounts.json'), 'utf8')).settings.autoContinue, false);
+  await f.pool.call('settings', { autoContinue: true });
+  // A page refresh holding the host lock refuses the first two starts.
+  f.box.refuse = [{ code: 409, msg: '插件或配置操作正在进行，请完成后再开始任务。' }, { code: 409, msg: '插件或配置操作正在进行，请完成后再开始任务。' }];
+  await turn(); await f.exit();
+  assert.equal(f.starts.length, 1);
+  assert.equal(f.starts[0].accountId, second);
+  // A refusal that is not temporary ends it with a note.
+  f.box.refuse = [{ code: 400, msg: '请先恢复归档会话。' }];
+  f.pool.chains.clear();
+  await f.pool.beforeRun({ session: f.current }); await f.exit();
+  assert.equal(f.starts.length, 1);
+  assert.match(f.pool.snapshot().notes[SESSION].message, /没有启动：请先恢复归档会话/);
+  await assert.rejects(f.pool.call('settings', { autoContinue: 'yes' }), /自动换号/);
+});
+
+test('accounts.json written before automatic continuation existed still loads with it switched on', async t => {
+  const f = await fixture(t);
+  await f.pool.close();
+  const file = path.join(f.dataDir, 'accounts.json'), saved = JSON.parse(await fs.readFile(file, 'utf8'));
+  delete saved.settings.autoContinue;
+  await fs.writeFile(file, JSON.stringify(saved), { mode: 0o600 });
+  const restored = await createAccountPool(f.options);
+  t.after(() => restored.close());
+  assert.equal(restored.snapshot().settings.autoContinue, true);
+  saved.settings.autoContinue = 'on';
+  await fs.writeFile(file, JSON.stringify(saved), { mode: 0o600 });
+  await assert.rejects(createAccountPool(f.options), /未重建或覆盖/);
 });

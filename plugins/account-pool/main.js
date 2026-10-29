@@ -38,6 +38,16 @@
   }
   const countdown = value => h('b', { class: 'wb-num', 'data-countdown': value }, remaining(value));
   const accountName = id => state?.accounts.find(account => account.id === id)?.label || '已移除的账号';
+  // What the plugin last did on its own for a conversation: moved it off an unusable pinned account, or
+  // continued a task whose account ran out of quota.
+  function noteText(note, name) {
+    if (!note) return null;
+    if (note.kind === 'continuing') return { tone: 'info', short: '额度用尽 · 换号中…', text: `「${name(note.from)}」额度用尽，正在换号继续` };
+    if (note.kind === 'continued') return { tone: '', short: `已换到${name(note.to)}继续`, text: `「${name(note.from)}」额度用尽，已换到「${name(note.to)}」继续` };
+    if (note.kind === 'released') return { tone: '', short: `已换到${name(note.to)}`, text: `固定的「${name(note.from)}」暂时不可用，已换到「${name(note.to)}」并改为自动` };
+    if (note.kind === 'failed') return { tone: 'warn', short: '额度用尽 · 未能换号', text: note.message || '额度用尽，未能自动换号继续' };
+    return null;
+  }
 
   async function act(method, params = {}) {
     if (busy) return;
@@ -142,17 +152,22 @@
     binding?.pinned ? binding.accountId : '', `「${session.title || '新的对话'}」使用的账号`);
     select.disabled = busy || running;
     select.addEventListener('change', () => act('bind', { sessionId: session.id, accountId: select.value || null }));
+    const note = noteText(state.notes?.[session.id], accountName);
     return h('li', null, h('span', { class: 'ap-session wb-ellipsis' }, session.title || '新的对话'),
+      note ? h('span', { class: `wb-tag ${note.tone || 'muted'}`, title: note.text }, note.short) : null,
       running ? h('span', { class: 'wb-tag info' }, '运行中') : null, select);
   }
 
   function render() {
     if (!state) return;
     const { accounts, settings } = state, full = accounts.length >= 10;
-    const available = accounts.filter(account => account.enabled && account.auth.loggedIn === true).length;
+    // Same rule as the cards: an account in its official cooldown is not counted as available.
+    const available = accounts.filter(account => account.enabled && account.auth.loggedIn === true && !account.usage?.rateLimited).length;
     const current = strategies.find(item => item.key === settings.strategy) || strategies[0];
     const threshold = selector(levels.map(([value, text]) => [String(value), text]), String(settings.switchAt), '提前换号');
     threshold.addEventListener('change', () => act('settings', { switchAt: Number(threshold.value) }));
+    const autoContinue = h('input', { type: 'checkbox', checked: settings.autoContinue !== false, disabled: busy, 'aria-label': '额度用尽时自动换号继续' });
+    autoContinue.addEventListener('change', () => act('settings', { autoContinue: autoContinue.checked }));
     const label = h('input', { class: 'ap-input', placeholder: '例如：工作账号 2', maxLength: 60, required: true, disabled: busy || full, 'data-draft': '', 'aria-label': '新账号名称' });
     const recent = sessions.filter(session => !session.archived).slice(0, 12);
     content.replaceChildren(
@@ -169,15 +184,17 @@
         h('p', { class: 'ap-hint' }, full ? '已达到 10 个账号空间。可以重命名或停用现有账号。' : '最多 10 个。添加后按「登录说明」用你已有的官方账号登录；不会自动注册账号。')),
       h('section', { class: 'wb-card' },
         h('h2', null, '每轮开始时怎么选账号'),
-        h('p', { class: 'ap-hint' }, '只在新一轮开始前选择，运行中的任务不会被切走；固定了账号的会话不受影响。未知额度不算用尽，达到官方限制的账号会暂时跳过。'),
+        h('p', { class: 'ap-hint' }, '只在新一轮开始前选择，运行中的任务不会被切走。固定了账号的会话一直用该账号；它额度用尽、退出登录或被停用时，会话换到下面选出的账号并改为自动。未知额度不算用尽，达到官方限制的账号会暂时跳过。'),
         h('div', { class: 'ap-strategies', role: 'radiogroup', 'aria-label': '账号选择策略' }, strategies.map(item =>
           h('button', { type: 'button', class: 'ap-strategy', role: 'radio', 'aria-checked': String(item === current), disabled: busy,
             onclick: () => { if (item !== current) void act('settings', { strategy: item.key }); } },
           h('strong', null, item.title), h('span', null, item.detail)))),
-        h('label', { class: 'ap-threshold' }, h('span', null, '提前换号'), threshold, h('span', { class: 'wb-faint' }, '额度用到这个比例时，下一轮换到别的账号'))),
+        h('label', { class: 'ap-threshold' }, h('span', null, '提前换号'), threshold, h('span', { class: 'wb-faint' }, '额度用到这个比例时，下一轮换到别的账号')),
+        h('label', { class: 'ap-threshold ap-toggle' }, autoContinue, h('span', null, '额度用尽时自动换号继续'),
+          h('span', { class: 'wb-faint' }, '任务做到一半账号额度用尽时，换到还有额度的账号，接着原来的对话继续；每个账号每项任务只试一次'))),
       h('section', { class: 'wb-card' },
         h('h2', null, '会话使用的账号'),
-        h('p', { class: 'ap-hint' }, '输入框左侧的账号选择器也能切换。固定后这个会话一直用该账号；自动则跟随上面的选择方式。切换时只接续这个会话的官方记录，工作区不动。'),
+        h('p', { class: 'ap-hint' }, '输入框左侧的账号选择器也能切换。固定后这个会话一直用该账号，直到它不可用；自动则跟随上面的选择方式。切换时只接续这个会话的官方记录，工作区不动。'),
         recent.length ? h('ul', { class: 'wb-list ap-bindings' }, recent.map(sessionRow)) : h('div', { class: 'wb-empty' }, '还没有会话。')),
       h('p', { class: 'ap-footer' }, icon('shield'), h('span', null, '登录和 Claude 请求都由这台服务器上的官方 CLI 发出；账号配置与会话绑定只保存在这里。停用账号会保留登录状态。')));
   }
@@ -193,15 +210,21 @@
       ? ` · 5 小时 ${percent(account.usage.fiveHour)} · 每周 ${percent(account.usage.sevenDay)}` : '';
     function publish() {
       const accounts = snapshot.accounts, loggedIn = accounts.filter(account => account.enabled && account.auth.loggedIn === true).length;
-      wb.ui.setSidebar({ subtitle: `${loggedIn} 个已登录 · ${accounts.length} 个账号`, tone: loggedIn ? '' : 'warn' }).catch(() => {});
+      const notes = snapshot.notes || {}, failed = Object.values(notes).filter(note => note.kind === 'failed').length;
+      wb.ui.setSidebar({ subtitle: failed ? `${failed} 个会话额度用尽，未能换号` : `${loggedIn} 个已登录 · ${accounts.length} 个账号`,
+        tone: loggedIn && !failed ? '' : 'warn' }).catch(() => {});
       const strategy = strategies.find(item => item.key === snapshot.settings.strategy)?.label || '';
       const options = [{ value: AUTO, label: '自动选择', detail: `跟随全局策略：${strategy}` },
         ...accounts.map(account => ({ value: account.id, label: account.label,
           detail: `${!account.enabled ? '已停用' : account.auth.loggedIn === true ? '已登录' : account.auth.loggedIn === false ? '未登录' : '登录状态待确认'}${quota(account)}`,
           disabled: !account.enabled || account.auth.loggedIn === false }))];
       // Unpinned conversations show which account they used last; the picker still means "automatic".
-      const values = Object.fromEntries(Object.entries(snapshot.bindings).slice(-1000).map(([sessionId, binding]) =>
-        [sessionId, binding.pinned ? binding.accountId : { value: AUTO, label: `自动 · ${named(binding.accountId)}` }]));
+      // An automatic switch or continuation shows in its place until the next turn the user starts.
+      const values = Object.fromEntries(Object.entries(snapshot.bindings).slice(-1000).map(([sessionId, binding]) => {
+        const note = noteText(notes[sessionId], named);
+        if (note) return [sessionId, { value: binding.pinned ? binding.accountId : AUTO, label: note.short }];
+        return [sessionId, binding.pinned ? binding.accountId : { value: AUTO, label: `自动 · ${named(binding.accountId)}` }];
+      }));
       wb.composer.setPicker({ options, value: AUTO, values, title: '本会话使用的官方账号' }).catch(() => {});
     }
     async function refresh() {

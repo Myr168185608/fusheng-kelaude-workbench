@@ -212,6 +212,38 @@ test('both plugins retain an isolated account and official session through check
   await next.finish(); assert.equal((await f.backend('task-resume', 'list')).body.tasks[0].state, 'completed');
 });
 
+test('a turn that ran out of quota continues by itself on another account with the same official session', async t => {
+  const f = await fixture(t); await f.login(); await f.enable('account-pool'); await f.enable('task-resume');
+  const a = await f.account('First account'), b = await f.account('Second account'), s = await f.create();
+  // The primary account keeps its transcripts in the real ~/.claude; this test only uses temporary profiles.
+  assert.equal((await f.backend('account-pool', 'update', { id: b.id, isDefault: true })).status, 200);
+  assert.equal((await f.backend('account-pool', 'update', { id: 'primary', enabled: false })).status, 200);
+  assert.equal((await f.backend('account-pool', 'bind', { sessionId: s.id, accountId: a.id })).status, 200);
+  assert.equal((await f.send(s, 'BUILD THE REPORT PAGE')).status, 202);
+  const first = f.fake.calls[0]; assert.equal(first.options.configDir, a.profile); const original = await f.transcript(first);
+  first.emit({ type: 'rate_limit', status: 'rejected', rateLimited: true, limitType: 'five_hour', cooldownUntil: new Date(Date.now() + 3_600_000).toISOString(), windows: {} });
+  first.emit({ type: 'error', message: "You've hit your limit" });
+  // Until the CLI exits, the conversation is still running: nothing can start beside it.
+  assert.equal((await f.api(`/api/sessions/${s.id}`)).body.status, 'running');
+  await first.finish({ code: 143, signal: 'SIGTERM', limitReached: true });
+  for (let i = 0; i < 150 && f.fake.calls.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 20));
+  const next = f.fake.calls[1]; assert.ok(next, 'the task continued without the user');
+  assert.equal(next.options.configDir, b.profile); assert.equal(next.options.sessionId, original.id); assert.equal(next.options.cwd, first.options.cwd);
+  const copied = path.join(b.profile, 'projects', next.options.cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${original.id}.jsonl`);
+  assert.equal(await fs.readFile(copied, 'utf8'), await fs.readFile(path.join(original.project, `${original.id}.jsonl`), 'utf8'));
+  assert.match(next.options.prompt, /^上一轮因「First account」5 小时额度用尽中断，工作台已自动换到「/);
+  assert.match(next.options.prompt, /原任务：\nBUILD THE REPORT PAGE$/);
+  const pool = (await f.backend('account-pool', 'list')).body;
+  assert.equal(pool.bindings[s.id].pinned, false); assert.equal(pool.bindings[s.id].accountId, b.id);
+  assert.equal(pool.notes[s.id].kind, 'continued'); assert.equal(pool.notes[s.id].from, a.id);
+  assert.equal((await f.api(`/api/sessions/${s.id}`)).body.status, 'running');
+  await next.finish(); await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(f.fake.calls.length, 2); assert.equal((await f.api(`/api/sessions/${s.id}`)).body.status, 'idle');
+  // The user's next message runs where the conversation went, and the note is gone.
+  assert.equal((await f.send(s, 'NEXT')).status, 202); assert.equal(f.fake.calls[2].options.configDir, b.profile);
+  assert.equal((await f.backend('account-pool', 'list')).body.notes[s.id], undefined); await f.fake.calls[2].finish();
+});
+
 test('parallel runs use their own account profiles; exclusive plugin operations still wait for every task and hold back new ones', async t => {
   const f = await fixture(t); await f.login(); await f.enable('account-pool');
   const one = await f.account('Parallel one'), two = await f.account('Parallel two'), a = await f.create(), b = await f.create();

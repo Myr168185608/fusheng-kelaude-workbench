@@ -119,7 +119,7 @@ export async function createWorkbench(options={}){
     if(result.preflightFailed && staged)Object.assign(s,staged);
     else if(!result.preflightFailed){
      s.permissions=[];
-     if(result.timedOut||result.stopReason==='error'||s.status==='error')s.status='error';
+     if(result.timedOut||result.stopReason==='error'||run.failed||s.status==='error')s.status='error';
      else if(result.stopped){s.status='idle';s.events.push({type:'stopped',time:now(),message:'任务已停止。'});}
      else if(result.code!==0&&!result.endedAfterResult){s.status='error';s.lastError=s.lastError||'Claude Code 进程已退出，请查看本轮记录后重试。';}
      else s.status='idle';

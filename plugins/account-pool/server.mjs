@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { claudeEnvironment } from '../../lib/claude-environment.mjs';
 import { UsageMonitor, unknownQuota } from '../../lib/usage.mjs';
-import { routeCandidates, shouldSwitch, SWITCH_LEVELS } from './routing.mjs';
+import { limitName, routeCandidates, shouldSwitch, SWITCH_LEVELS } from './routing.mjs';
 import { transferConversation } from './transfer.mjs';
 
 export const PRIMARY_ACCOUNT_ID = 'primary';
@@ -22,6 +22,25 @@ const bounded = (value, max = 80) => typeof value === 'string' && value.length <
 const initialAuth = () => ({ loggedIn: null, emailMask: null, subscriptionType: null, authMethod: null });
 const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 const date = now => new Date(now()).toISOString();
+const CONTINUATION = 'account-pool';
+
+const CONTINUED = /^上一轮因「[^」]*」.{0,20}用尽中断，工作台已自动换到「/;
+
+/** The request a quota-interrupted turn was working on: the user's last own message plus the guidance
+ * sent during that turn. The resumed transcript has it too; repeating it keeps the continuation on task.
+ * A continuation prompt is never wrapped into another one. */
+export function interruptedRequest(session) {
+  const messages = Array.isArray(session?.messages) ? session.messages : [];
+  const at = messages.findLastIndex(m => m?.role === 'user' && !m.steer && !CONTINUED.test(String(m.text || '')));
+  if (at < 0) return '';
+  const steers = messages.slice(at + 1).filter(m => m?.role === 'user' && m.steer && m.steer !== 'dropped' && typeof m.text === 'string');
+  const text = `${String(messages[at].text || '')}${steers.length ? `\n\n（任务进行中补充的引导）\n${steers.map(m => `- ${m.text}`).join('\n')}` : ''}`;
+  return text.length > 4000 ? `${text.slice(0, 4000)}\n\n（原任务较长，以上只是开头，完整内容见对话历史中的原消息。）` : text;
+}
+
+export const continuationPrompt = (fromLabel, toLabel, limit, request) => `上一轮因「${fromLabel}」${limit}用尽中断，工作台已自动换到「${toLabel}」，对话历史已接续。` +
+  '上一轮在后台启动的进程（开发服务器、隧道、监控等）已随中断停止。请先核对工作区和外部操作的实际状态，分清已完成、未完成和结果不确定的步骤，' +
+  '再从中断处继续完成原任务；不要重复已经完成的修改、发送、部署等有副作用的操作，结果不确定时先检查。' + (request ? `\n\n原任务：\n${request}` : '');
 
 export function maskEmail(value) {
   if (typeof value !== 'string' || value.length > 320) return null;
@@ -50,9 +69,10 @@ export async function createAccountPool(options) {
 
 class AccountPool {
   constructor({ dataDir, workspaceRoot, binary = 'claude', legacyConfigDir = path.join(homedir(), '.claude'),
-    env = {}, isActive = () => true, isBusy = () => false, withExclusive = async fn => fn(), getSession = () => null,
+    env = {}, isActive = () => true, isBusy = () => false, withExclusive = async fn => fn(), getSession = () => null, startTurn = null,
     authProvider, usageFactory = options => new UsageMonitor(options), now = Date.now,
-    exec = promisify(execFile), onUpdate = () => {}, authTtlMs = 60_000 } = {}) {
+    exec = promisify(execFile), onUpdate = () => {}, onNotes = () => {}, authTtlMs = 60_000,
+    continueAttempts = 5, continueDelayMs = 3000 } = {}) {
     if (![dataDir, workspaceRoot, legacyConfigDir].every(value => typeof value === 'string' && path.isAbsolute(value))) {
       throw new TypeError('Account data, workspace and legacy configuration paths must be absolute');
     }
@@ -60,13 +80,17 @@ class AccountPool {
       (!path.isAbsolute(binary) && !/^[A-Za-z0-9_.-]+$/.test(binary))) throw new TypeError('CLI binary must be absolute or a command name');
     if (!(authTtlMs > 0)) throw new TypeError('Authentication cache TTL must be positive');
     Object.assign(this, { dataDir, workspaceRoot, binary, legacyConfigDir, env, isActive, isBusy, withExclusive,
-      getSession, authProvider, usageFactory, now, exec, onUpdate, authTtlMs });
+      getSession, startTurn, authProvider, usageFactory, now, exec, onUpdate, onNotes, authTtlMs, continueAttempts, continueDelayMs });
     this.filename = path.join(dataDir, 'accounts.json');
     this.profilesRoot = path.join(dataDir, 'profiles');
-    this.state = { version: 1, defaultAccountId: PRIMARY_ACCOUNT_ID, settings: { strategy: 'sticky', switchAt: 100 },
+    this.state = { version: 1, defaultAccountId: PRIMARY_ACCOUNT_ID, settings: { strategy: 'sticky', switchAt: 100, autoContinue: true },
       cursor: null, accounts: [{ id: PRIMARY_ACCOUNT_ID, label: '默认账号', enabled: true, createdAt: date(now) }], bindings: {} };
     this.runtime = new Map();
     this.runAccounts = new Map();
+    // Per conversation, in memory: the accounts a quota-interrupted task already ran out on, and the latest
+    // automatic switch or continuation to show beside its account picker.
+    this.chains = new Map();
+    this.notes = new Map();
     this.operations = Promise.resolve();
     this.closed = false;
   }
@@ -90,7 +114,8 @@ class AccountPool {
   #validateState(value) {
     if (!object(value) || value.version !== 1 || !Array.isArray(value.accounts) || !value.accounts.length ||
       value.accounts.length > 10 || !object(value.settings) || !STRATEGIES.includes(value.settings.strategy) ||
-      !SWITCH_LEVELS.includes(value.settings.switchAt) || !object(value.bindings) || Object.keys(value.bindings).length > 10000) {
+      !SWITCH_LEVELS.includes(value.settings.switchAt) || !['boolean', 'undefined'].includes(typeof value.settings.autoContinue) ||
+      !object(value.bindings) || Object.keys(value.bindings).length > 10000) {
       throw fail(500, '账号插件配置格式无效。');
     }
     const ids = new Set();
@@ -108,7 +133,8 @@ class AccountPool {
       bindings[sessionId] = { accountId: binding.accountId, transcriptAccountId: binding.transcriptAccountId, pinned: binding.pinned };
     }
     return { version: 1, defaultAccountId: value.defaultAccountId,
-      settings: { strategy: value.settings.strategy, switchAt: value.settings.switchAt }, cursor: value.cursor, accounts, bindings };
+      settings: { strategy: value.settings.strategy, switchAt: value.settings.switchAt, autoContinue: value.settings.autoContinue ?? true },
+      cursor: value.cursor, accounts, bindings };
   }
 
   #active() {
@@ -153,7 +179,7 @@ class AccountPool {
   snapshot() {
     return { accounts: this.state.accounts.map(account => this.#account(account.id)),
       defaultAccountId: this.state.defaultAccountId, settings: structuredClone(this.state.settings),
-      bindings: structuredClone(this.state.bindings) };
+      bindings: structuredClone(this.state.bindings), notes: Object.fromEntries(structuredClone([...this.notes])) };
   }
 
   sessionState(sessionId) { return structuredClone(this.state.bindings[sessionId] || null); }
@@ -220,15 +246,18 @@ class AccountPool {
       this.onUpdate();
       return this.snapshot();
     });
+    // Reading login and quota state runs beside other conversations' tasks, as it does when a turn starts;
+    // only this plugin's queue orders it, so the panel can refresh while something is working.
+    if (method === 'refresh') return this.#enqueue(async () => {
+      this.#active();
+      fields(params, ['id']);
+      const ids = params.id === undefined ? this.state.accounts.filter(account => account.enabled).map(account => account.id) : [this.#record(params.id).id];
+      for (const id of ids) { this.#active(); await this.#refresh(id, { force: true, usage: true }); }
+      this.#active();
+      return this.snapshot();
+    });
     return this.withExclusive(() => this.#enqueue(async () => {
       this.#active();
-      if (method === 'refresh') {
-        fields(params, ['id']);
-        const ids = params.id === undefined ? this.state.accounts.filter(account => account.enabled).map(account => account.id) : [this.#record(params.id).id];
-        for (const id of ids) { this.#active(); await this.#refresh(id, { force: true, usage: true }); }
-        this.#active();
-        return this.snapshot();
-      }
       const previous = structuredClone(this.state);
       try {
         if (method === 'create') {
@@ -251,7 +280,7 @@ class AccountPool {
           }
           if (!this.#record(this.state.defaultAccountId).enabled) throw fail(409, '默认账号必须启用，请先选择其他默认账号。');
         } else if (method === 'settings') {
-          fields(params, ['strategy', 'switchAt']);
+          fields(params, ['strategy', 'switchAt', 'autoContinue']);
           if (params.strategy !== undefined) {
             if (!STRATEGIES.includes(params.strategy)) throw fail(400, '账号策略无效。');
             this.state.settings.strategy = params.strategy;
@@ -259,6 +288,10 @@ class AccountPool {
           if (params.switchAt !== undefined) {
             if (!SWITCH_LEVELS.includes(params.switchAt)) throw fail(400, '切换阈值仅支持 90、95、98、100。');
             this.state.settings.switchAt = params.switchAt;
+          }
+          if (params.autoContinue !== undefined) {
+            if (typeof params.autoContinue !== 'boolean') throw fail(400, '自动换号继续的设置无效。');
+            this.state.settings.autoContinue = params.autoContinue;
           }
         }
         this.#active();
@@ -269,8 +302,9 @@ class AccountPool {
     }));
   }
 
-  /** Called only while the host owns the task/terminal/probe lock. Routing happens
-   * at turn boundaries; this plugin never repeats an interrupted request. */
+  /** Called only while the host owns the task/terminal/probe lock. Routing happens at turn boundaries.
+   * A turn that ran out of quota is continued by onExit() through the host's startTurn(); that request
+   * carries `source: 'account-pool'` and `handoff: { to, exclude }`. */
   async beforeRun({ session, cwd = this.workspaceRoot, request = {}, kind = 'run' } = {}) {
     this.#active();
     if (!session || !UUID.test(session.id) || typeof cwd !== 'string' || !path.isAbsolute(cwd)) throw fail(400, '会话运行参数无效。');
@@ -283,6 +317,9 @@ class AccountPool {
       }
       this.#active();
       let binding = this.state.bindings[session.id];
+      const handoff = request.source === CONTINUATION && object(request.handoff) ? request.handoff : null;
+      // A turn the user (or another plugin) starts begins a new task: earlier exhausted accounts may serve it again.
+      if (!handoff) this.chains.delete(session.id);
       // A choice made in the composer before this conversation existed arrives with its first message.
       if (typeof request.choice === 'string') {
         if (request.choice === AUTO_CHOICE) { if (binding?.pinned) binding = { ...binding, pinned: false }; }
@@ -297,21 +334,36 @@ class AccountPool {
       const preferredId = binding?.accountId || this.state.defaultAccountId;
       const accounts = this.state.accounts.map(account => this.#account(account.id));
       const candidates = routeCandidates(accounts, { model, below: switchAt, now: this.now() });
-      let selected;
-      if (binding?.pinned) {
-        selected = accounts.find(account => account.id === preferredId && account.enabled && account.auth.loggedIn === true);
-        if (!selected || shouldSwitch(selected, { model, switchAt: 100, now: this.now() })) throw fail(409, '绑定的账号尚未登录、已停用或额度不可用；请在多账号插件中重新绑定。');
-      } else if (strategy === 'round-robin') {
-        const eligible = this.state.accounts.filter(account => candidates.some(candidate => candidate.account.id === account.id));
-        const cursor = this.state.accounts.findIndex(account => account.id === this.state.cursor);
-        selected = [...this.state.accounts.slice(cursor + 1), ...this.state.accounts.slice(0, cursor + 1)]
-          .find(account => eligible.some(candidate => candidate.id === account.id));
-      } else if (strategy === 'quota') {
-        selected = candidates[0]?.account;
-      } else {
-        selected = candidates.find(candidate => candidate.account.id === preferredId)?.account || candidates[0]?.account;
+      let selected, pinned = binding?.pinned || false;
+      if (handoff) {
+        // Continue an interrupted task on any account it has not run out on yet: the one picked for it, unless the
+        // conversation was pinned to another usable account meanwhile.
+        const exclude = Array.isArray(handoff.exclude) ? handoff.exclude.filter(idIsValid) : [];
+        const open = routeCandidates(accounts, { model, exclude, now: this.now() });
+        selected = (pinned && open.find(candidate => candidate.account.id === preferredId)?.account)
+          || open.find(candidate => candidate.account.id === handoff.to)?.account || open[0]?.account;
+        if (!selected) throw fail(409, '其他账号也没有可用额度，未能自动换号继续。');
+      } else if (pinned) {
+        const own = accounts.find(account => account.id === preferredId && account.enabled && account.auth.loggedIn === true);
+        if (own && !shouldSwitch(own, { model, switchAt: 100, now: this.now() })) selected = own;
+      }
+      // A pinned account that cannot take this turn (out of quota, logged out or disabled) no longer stops the
+      // conversation: it moves to the account the strategy picks and follows the strategy from now on.
+      if (!selected) {
+        if (strategy === 'round-robin') {
+          const eligible = this.state.accounts.filter(account => candidates.some(candidate => candidate.account.id === account.id));
+          const cursor = this.state.accounts.findIndex(account => account.id === this.state.cursor);
+          selected = [...this.state.accounts.slice(cursor + 1), ...this.state.accounts.slice(0, cursor + 1)]
+            .find(account => eligible.some(candidate => candidate.id === account.id));
+        } else if (strategy === 'quota') {
+          selected = candidates[0]?.account;
+        } else {
+          selected = candidates.find(candidate => candidate.account.id === preferredId)?.account || candidates[0]?.account;
+        }
       }
       if (!selected) throw fail(409, '没有已登录且低于切换阈值的可用账号。请刷新账号状态、调整阈值或等待官方额度恢复。');
+      const released = pinned && selected.id !== preferredId;
+      if (released) pinned = false;
       await this.#prepare(selected.id);
       const sourceId = binding?.transcriptAccountId || PRIMARY_ACCOUNT_ID;
       if (session.claudeSessionId && sourceId !== selected.id) {
@@ -321,12 +373,14 @@ class AccountPool {
       this.#active();
       const previous = structuredClone(this.state);
       try {
-        this.state.bindings[session.id] = { accountId: selected.id, transcriptAccountId: selected.id, pinned: binding?.pinned || false };
+        this.state.bindings[session.id] = { accountId: selected.id, transcriptAccountId: selected.id, pinned };
         this.state.cursor = selected.id;
         await this.#persist();
       } catch (error) { this.state = previous; throw error; }
       // Only chat turns report their exit; terminals keep no per-turn account.
       if (kind === 'run') this.runAccounts.set(session.id, selected.id);
+      if (released) { this.notes.set(session.id, { kind: 'released', from: preferredId, to: selected.id, at: date(this.now) }); this.#noted(); }
+      else if (!handoff && kind === 'run' && this.notes.delete(session.id)) this.#noted();
       this.onUpdate();
       return { accountId: selected.id, configDir: this.#configDir(selected.id) };
     });
@@ -339,8 +393,68 @@ class AccountPool {
     if (event?.type === 'quota' || event?.type === 'rate_limit') this.#monitor(accountId).observe?.(event);
   }
 
-  // Routing is persisted before launch; no automatic replay occurs.
-  onExit({ session } = {}) { this.runAccounts.delete(session?.id); }
+  /** A turn the official CLI ended because its account ran out of quota (`result.limitReached`) continues on
+   * the next account once the host has released the conversation. A stop, a restart, a failed start or a
+   * user who acts first cancels it; each account is tried at most once per task. */
+  onExit({ session, run, result = {} } = {}) {
+    const accountId = this.runAccounts.get(session?.id);
+    this.runAccounts.delete(session?.id);
+    if (!accountId || !UUID.test(session?.id)) return;
+    if (!result.limitReached || result.stopped || result.shutdown || result.preflightFailed) { this.chains.delete(session.id); return; }
+    if (this.closed || !this.isActive() || !this.state.settings.autoContinue || typeof this.startTurn !== 'function') return;
+    const chain = this.chains.get(session.id) || { tried: [], request: interruptedRequest(session), limitType: null };
+    if (!chain.tried.includes(accountId)) chain.tried.push(accountId);
+    chain.limitType = session.limitHit?.limitType || chain.limitType;
+    this.chains.set(session.id, chain);
+    this.notes.set(session.id, { kind: 'continuing', from: accountId, at: date(this.now) });
+    this.#noted();
+    void Promise.resolve(run?.done).then(() => this.#continueAfterLimit(session.id, chain)).catch(() => {});
+  }
+
+  async #continueAfterLimit(sessionId, chain) {
+    const from = chain.tried.at(-1), fromLabel = this.state.accounts.find(account => account.id === from)?.label || '原账号';
+    let failure = null, started = false;
+    try {
+      if (this.closed || !this.isActive() || this.chains.get(sessionId) !== chain) return;
+      const session = await this.getSession(sessionId);
+      // The user may have sent, stopped or archived the conversation since: their action wins.
+      if (!session || session.archived || RUNNING.includes(session.status)) return;
+      const target = await this.#enqueue(async () => {
+        this.#active();
+        for (const record of this.state.accounts) {
+          if (record.enabled && !chain.tried.includes(record.id)) { this.#active(); await this.#refresh(record.id, { usage: true }); }
+        }
+        const accounts = this.state.accounts.map(account => this.#account(account.id));
+        return routeCandidates(accounts, { model: session.model, exclude: chain.tried, now: this.now() })[0]?.account || null;
+      });
+      if (this.closed || !this.isActive() || this.chains.get(sessionId) !== chain) return;
+      if (!target) { failure = `「${fromLabel}」${limitName(chain.limitType)}已用尽，其他账号也没有可用额度，未能自动换号继续。`; return; }
+      const prompt = continuationPrompt(fromLabel, target.label, limitName(chain.limitType), chain.request);
+      // A page refresh can hold the host's exclusive lock for a moment, and a parallel task can take the last
+      // run slot: a refused start is retried a few times while nobody else has used the conversation.
+      for (let attempt = 1; ; attempt++) {
+        const result = await this.startTurn(session, prompt, { requestId: `account-pool-${randomUUID()}`, source: CONTINUATION,
+          handoff: { to: target.id, exclude: [...chain.tried] } });
+        if (!result?.msg && !(result?.code >= 400)) break;
+        if (result.code !== 409 || attempt >= this.continueAttempts) { failure = `自动换号继续没有启动：${result.msg || '请稍后在对话里手动继续。'}`; return; }
+        await new Promise(resolve => setTimeout(resolve, this.continueDelayMs));
+        if (this.closed || !this.isActive() || this.chains.get(sessionId) !== chain || session.archived || RUNNING.includes(session.status)) return;
+      }
+      started = true;
+      this.notes.set(sessionId, { kind: 'continued', from, to: this.state.bindings[sessionId]?.accountId || target.id, at: date(this.now) });
+    } catch (error) {
+      failure = `自动换号继续没有启动：${error?.message || '请稍后在对话里手动继续。'}`;
+    } finally {
+      if (!started) {
+        if (failure) this.notes.set(sessionId, { kind: 'failed', from, message: failure, at: date(this.now) });
+        else if (this.notes.get(sessionId)?.kind === 'continuing') this.notes.delete(sessionId);
+      }
+      this.#noted();
+    }
+  }
+
+  // Notes change a few times per interrupted task; pages hear about them without waiting for a session event.
+  #noted() { if (!this.closed && this.isActive()) this.onNotes(); }
 
   async close() {
     this.closed = true;
